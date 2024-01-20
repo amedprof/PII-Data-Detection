@@ -40,7 +40,7 @@ class FeedbackDataset(Dataset):
                  train = True
                  ):
         
-        self.train = True
+        self.train = train
         self.tokenizer = tokenizer
         if len(self.tokenizer.encode("\n\n"))==2:
             print("Warning : \n will be replace by | ")
