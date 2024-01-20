@@ -79,8 +79,8 @@ callbacks:
   verbose_eval: 1
   epoch_pct_eval: 0.5
   epoch_eval_dist: "uniforme"
-  metric_track: valid_loss
-  mode: min
+  metric_track: f5_micro
+  mode: max
   top_k: 1
   start_eval_epoch : 0
   save_last_k : 0

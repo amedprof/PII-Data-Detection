@@ -126,7 +126,7 @@ def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: 
     return score_result
 
 def score_feedback(pred_df, gt_df,return_class_scores=False):
-    df = pred_df.merge(gt_df,how='outer',on=['document',"token"],suffixes=('_pred','_gt'))
+    df = pred_df.merge(gt_df,how='outer',on=['document',"token"],suffixes=('_p','_g'))
 
     df['status'] = "TN"
 

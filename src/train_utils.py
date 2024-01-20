@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel, AutoConfig
  
 from data.data_utils import to_gpu,to_np
-from data.dataset import FeedbackDataset,CustomCollator
+from data.dataset import FeedbackDataset,CustomCollator,ID_TYPE,ID_NAME,LABEL2TYPE,TYPE2LABEL
 from torch.utils.data import DataLoader
 
 from model_zoo.models import FeedbackModel,span_nms,aggregate_tokens_to_words
@@ -207,7 +207,7 @@ class AutoSave:
 
   def save(self, model,rank, metrics):
     val_text = " "
-    order_prt = ["fold","epoch",'step','train_loss','val_loss',self.metric] if self.metric!="val_loss" else ["fold","epoch",'step','train_loss','val_loss']
+    order_prt = ["fold","epoch",'step','train_loss','valid_loss',self.metric] if self.metric!="valid_loss" else ["fold","epoch",'step','train_loss','val_loss']
     for k,v in metrics.items():
         if k in order_prt:
             if k in ["fold","epoch",'step']:
@@ -367,24 +367,30 @@ def evaluation_step(args,model,val_loader,criterion):
             data = to_np(data)
 
             gt = pd.DataFrame({
-              "document":data['text_id'],
-              "token":np.arange(pred.shape[0]),
-              "label":data["gt_spans"][:,1],
+                                "document":data['text_id'],
+                                "token":np.arange(pred.shape[0]),
+                                "label":data["gt_spans"][:,1],
+                                "I":data["gt_spans"][:,2],
                             })
             gt_df.append(gt)
             
 
     pred_df = pd.concat(pred_df,axis=0).reset_index(drop=True)
     pred_df = pred_df[(pred_df.label!=7) & (pred_df.score>0.5)].reset_index(drop=True)
+    pred_df["I"] = ((pred_df.groupby('document')['label'].transform(lambda x:x.diff())==0) & (pred_df.groupby('document')['token'].transform(lambda x:x.diff())==1))*1
+    pred_df['labels'] = pred_df['label'].astype(str)+'-'+pred_df['I'].astype(str)
+    pred_df["label_pred"] = pred_df["labels"].map(ID_TYPE).fillna(0).astype(int)
     pred_df['row_id'] = np.arange(len(pred_df))
 
     gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
     gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+    gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
+    gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
     gt_df['row_id'] = np.arange(len(gt_df))
 
 
     try:
-        micro_f1 = score_feedback(pred_df, gt_df,return_class_scores=False) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
+        micro_f1,macro_f1 = score_feedback(pred_df, gt_df,return_class_scores=False) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
     except:
         micro_f1,macro_f1 = 0,0
 

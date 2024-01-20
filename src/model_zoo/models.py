@@ -57,7 +57,7 @@ class FeedbackModel(nn.Module):
             try:
                 self.load_from_cp()
             except:
-                pass
+                print('Loading failled !')
         if use_gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
         # self.fc.bias.data[0].fill_(bias_init_with_prob(0.02))
@@ -68,6 +68,7 @@ class FeedbackModel(nn.Module):
         print("Using Pretrained Weights")
         print(self.pretrained_path)
         state_dict = torch.load(self.pretrained_path, map_location=lambda storage, loc: storage)
+        # print(state_dict.keys())
         del state_dict['fc.bias']
         del state_dict['fc.weight']
 
@@ -79,7 +80,8 @@ class FeedbackModel(nn.Module):
         else:
             for key in list(state_dict.keys()):
                 state_dict[key.replace('backbone.', '')] = state_dict.pop(key)
-         
+        
+        # print(self.backbone)
         self.backbone.load_state_dict(state_dict, strict=True)
         print('Loading successed !')
 

@@ -11,6 +11,23 @@ from tqdm.auto import tqdm
 
 LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
 TYPE2LABEL = {t: l for l, t in enumerate(LABEL2TYPE)}
+ID_TYPE = {"0-0":0,"0-1":1,
+           "1-0":2,"1-1":3,
+           "2-0":4,"2-1":5,
+           "3-0":6,"3-1":7,
+           "4-0":8,"4-1":9,
+           "5-0":10,"5-1":11,
+           "6-0":12,"6-1":12
+          }
+
+ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
+           "1-0":"B-EMAIL","1-1":"I-EMAIL",
+           "2-0":"B-USERNAME","2-1":"I-USERNAME",
+           "3-0":"B-ID_NUM","3-1":"I-ID_NUM",
+           "4-0":"B-PHONE_NUM","4-1":"I-PHONE_NUM",
+           "5-0":"B-URL_PERSONAL","5-1":"I-URL_PERSONAL",
+           "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS"
+          }
 
 
 ## =============================================================================== ##
@@ -26,8 +43,9 @@ class FeedbackDataset(Dataset):
         self.train = True
         self.tokenizer = tokenizer
         if len(self.tokenizer.encode("\n\n"))==2:
+            print("Warning : \n will be replace by | ")
             df["full_text"] = df['full_text'].transform(lambda x:x.str.replace("\n\n"," | "))
-            df["tokens"] = df['tokens'].transform(lambda x:[i.str.replace("\n\n"," | ") for i in x])
+            df["tokens"] = df['tokens'].transform(lambda x:[str(i).replace("\n\n"," | ") for i in x])
 
         self.df = self.prepare_df(df)
 
@@ -82,7 +100,7 @@ class FeedbackDataset(Dataset):
         gt_spans = []        
         for i,label in enumerate(labels) :
 #             if i not in err:
-            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"]])
+            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1])
             
         gt_spans = torch.LongTensor(gt_spans)
 
