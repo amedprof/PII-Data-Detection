@@ -114,7 +114,7 @@ class AWP:
         self.scaler = scaler
         self.args = args
         device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu") 
-        # self.criterion = eval(args.model['loss'])(reduction="mean").to(device)
+        self.criterion = eval(args.model['loss']['loss_name'])(**args.model['loss']['loss_params']).to(device)
     
     def attack_backward(self,data,epoch):
         if (self.adv_lr == 0) or (epoch < self.start_epoch):
@@ -123,7 +123,7 @@ class AWP:
         self._save() 
         for i in range(self.adv_step):
             self._attack_step() 
-            adv_loss,_ = training_step(self.args,self.model,data)            
+            adv_loss,_ = training_step(self.args,self.model,data,self.criterion)            
             self.optimizer.zero_grad()
             if self.scaler is None:
                 adv_loss.backward()
@@ -389,20 +389,20 @@ def evaluation_step(args,model,val_loader,criterion):
     gt_df['row_id'] = np.arange(len(gt_df))
 
 
-    try:
-        micro_f1,macro_f1 = score_feedback(pred_df, gt_df,return_class_scores=False) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
-    except:
-        micro_f1,macro_f1 = 0,0
+    # try:
+    micro_f1,macro_f1 = score_feedback(pred_df, gt_df,return_class_scores=False) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
+    # except:
+        # micro_f1,macro_f1 = 0,{}
 
-    macro_f1 = micro_f1
+    # macro_f1 = micro_f1
     losses = np.mean(losses)
 
     log_vars = dict(
         valid_loss=losses,
-        f5_macro = macro_f1,
+        # f5_macro = macro_f1,
         f5_micro = micro_f1,
     )
-    
+    log_vars.update(macro_f1)
     return log_vars
 # ------------------------------------------ ------------------------------------------- #
 def inference_step(args,df):
@@ -452,7 +452,13 @@ def fit_net(
         wandb
     ):
     device = model.backbone.device
-    criterion = eval(args.model['loss']['loss_name'])(**args.model['loss']['loss_params']).to(device)
+
+    loss_params = args.model['loss']['loss_params']
+    names = [ x for x in LABEL2TYPE  if x in train_dataset.df.columns.tolist()]
+    weight = torch.Tensor([1/train_dataset.df[name].sum() for name in names])
+    loss_params.update({"weight":weight})
+    print(weight)
+    criterion = eval(args.model['loss']['loss_name'])(**loss_params).to(device)
     # criterion = eval(args.model['loss'])(**args.model['loss_params']).to(device)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     collator = CustomCollator(tokenizer,model)

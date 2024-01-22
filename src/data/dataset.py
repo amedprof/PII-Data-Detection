@@ -36,14 +36,13 @@ class FeedbackDataset(Dataset):
                  df,
                  tokenizer,
                  mask_prob=0.0,
-                 mask_ratio=0.0,
-                 train = True
+                 mask_ratio=0.0
                  ):
         
-        self.train = train
         self.tokenizer = tokenizer
+        self.is_train = "labels" in df.columns
         if len(self.tokenizer.encode("\n\n"))==2:
-            print("Warning : \n will be replace by | ")
+            print("Warning : n SEP will be replace by | ")
             df["full_text"] = df['full_text'].transform(lambda x:x.str.replace("\n\n"," | "))
             df["tokens"] = df['tokens'].transform(lambda x:[str(i).replace("\n\n"," | ") for i in x])
 
@@ -63,7 +62,7 @@ class FeedbackDataset(Dataset):
         df = self.df.iloc[index]
         text = df['full_text']
         text_id = df['document']
-        labels = df['labels'] if self.train else [] 
+        labels = [] if not self.is_train else df['labels']
         
         tokens = self.tokenizer(text, return_offsets_mapping=True)
         input_ids = torch.LongTensor(tokens['input_ids'])
@@ -123,6 +122,11 @@ class FeedbackDataset(Dataset):
         test_df['full_text'] = test_df['full_text'].transform(clean_text)        
         test_df['tokens'] = test_df['tokens'].transform(lambda x:[clean_text(i) for i in x])
         test_df['offset'] = test_df.apply(get_start_end_offset('tokens'),axis=1)
+
+        if "labels" in test_df.columns:
+            for name in LABEL2TYPE:
+                test_df[name] = test_df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ]))
+
 #         test_df['nb_labels'] = test_df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))
         return test_df
     

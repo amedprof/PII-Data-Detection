@@ -2,7 +2,7 @@ seed : -1
 
 project_name : "PII"
 
-kfold_name : fold_sk_5_seed_42
+kfold_name : fold_msk_5_seed_42
 selected_folds : [0,1,2,3,4] 
 
 name : ""
@@ -26,6 +26,7 @@ model:
     use_gradient_checkpointing : true
     config_path : 
     pretrained_path : 
+    max_len : 2048
     
   pretrained_weights : 
   pretrained_tokenizer : 
@@ -68,16 +69,16 @@ trainer:
   sample: false
   train_all_data : false
   use_awp: false
-  ema_decay_rate : 0.9
+  ema_decay_rate : 0
   grad_clip: false
   max_norm: 1
 
 callbacks:
   save : true
   es: true
-  patience: 10000
+  patience: 7
   verbose_eval: 1
-  epoch_pct_eval: 0.5
+  epoch_pct_eval: 0.2
   epoch_eval_dist: "uniforme"
   metric_track: f5_micro
   mode: max

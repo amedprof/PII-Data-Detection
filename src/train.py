@@ -62,7 +62,8 @@ def parse_args():
     parser.add_argument("--use_amp", type=int, default=None, required=False) 
     parser.add_argument("--scheduler", type=str, default=None, required=False) 
     parser.add_argument("--folds", nargs='+',type=int, default=None, required=False) 
-    parser.add_argument("--max_length",type=int, default=None, required=False) 
+    parser.add_argument("--max_len",type=int, default=None, required=False) 
+    parser.add_argument("--pct_eval", type=float, default=None, required=False) 
     parser_args, _ = parser.parse_known_args(sys.argv)
     return parser.parse_args()
 
@@ -85,14 +86,19 @@ if __name__ == "__main__":
     
     df = pd.read_json(DATA_PATH/'train.json')
     df['has_label'] = (df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))>0)*1
+
+    LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
+    for name in LABEL2TYPE[:-1]:
+        df[name] = ((df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
+
     seeds = [42]
     folds_names = []
     for K in [5]:  
         for seed in seeds:
-            mskf = StratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
-            name = f"fold_sk_{K}_seed_{seed}"
+            mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
+            name = f"fold_msk_{K}_seed_{seed}"
             df[name] = -1
-            for fold, (trn_, val_) in enumerate(mskf.split(df,df['has_label'])):
+            for fold, (trn_, val_) in enumerate(mskf.split(df,df[list(LABEL2TYPE)[:-1]])):
                 df.loc[val_, name] = fold
             # valid_df[name] = 0
     
@@ -119,13 +125,15 @@ if __name__ == "__main__":
 
     if cfg.use_amp is not None:
         args.trainer["use_amp"] = cfg.use_amp
+    
+    if cfg.pct_eval is not None:
+        args.callbacks["epoch_pct_eval"] = cfg.pct_eval
 
     if cfg.folds is not None:
         args.selected_folds = cfg.folds
     
-    if cfg.max_length is not None:
-        args.data["params_valid"]['max_length'] = cfg.max_length
-        args.data["params_train"]['max_length'] = cfg.max_length
+    if cfg.max_len is not None:
+        args.model["model_params"]['max_len'] = cfg.max_len
     
 
     args.model_name =  args.model["model_params"]["model_name"]
@@ -135,7 +143,7 @@ if __name__ == "__main__":
     args.exp_name = f"{TODAY}--{exp}"  
     args.checkpoints_path = str(CHECKPOINT_PATH/Path(fr'{args.kfold_name}/{args.name}/{args.exp_name}')) 
     # args.model['pretrained_weights'] = str(Path(r"/database/kaggle/MLM/Shovel Ready/checkpoint/fold/deberta-v3-large/microsoft/deberta-v3-large--2023-08-26--ep_10_bs_1_v1"))
-    args.model['pretrained_weights'] = str(Path(r"/database/kaggle/Shovel Ready/checkpoint/fold/deberta-large/2023-08-30--awp_v3"))
+    args.model['pretrained_weights'] = None #str(Path(r"/database/kaggle/Shovel Ready/checkpoint/fold/deberta-large/2023-08-30--awp_v3"))
     args.model["model_params"]['pretrained_path'] = args.model['pretrained_weights'] 
     Path(args.checkpoints_path).mkdir(parents=True,exist_ok=True)
 

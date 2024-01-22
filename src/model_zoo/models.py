@@ -34,9 +34,14 @@ class FeedbackModel(nn.Module):
                  config_path=None,
                  pretrained_path = None,
                  use_dropout=False,
-                 use_gradient_checkpointing = False
+                 use_gradient_checkpointing = False,
+                 max_len = 512*4
                  ):
         super().__init__()
+        k = max_len//512
+        self.max_len = max_len
+        self.inner_len = 64*k
+        self.edge_len = 384*k
         self.pretrained_path = pretrained_path
         self.config = AutoConfig.from_pretrained(model_name, output_hidden_states=True) if not config_path else torch.load(config_path)
 
@@ -53,6 +58,7 @@ class FeedbackModel(nn.Module):
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.fc = nn.Linear(self.config.hidden_size, num_labels)
         
+        print(self.max_len)
         if self.pretrained_path:
             try:
                 self.load_from_cp()
@@ -86,7 +92,41 @@ class FeedbackModel(nn.Module):
         print('Loading successed !')
 
     def forward(self,b):
-        x = self.backbone(b["input_ids"],b["attention_mask"]).last_hidden_state
+        
+        B,L=b["input_ids"].shape # BS x token_size
+        
+        if L<=self.max_len:
+            # print(L)
+            # print(b["input_ids"].shape)
+            x=self.backbone(input_ids=b["input_ids"],attention_mask=b["attention_mask"]).last_hidden_state
+        else:
+            # print(b["input_ids"].shape)
+            # Slidding window
+            segments=(L-self.max_len)//self.inner_len
+            if (L-self.max_len)%self.inner_len>self.edge_len:
+                segments+=1
+            elif segments==0:
+                segments+=1
+
+            x=self.backbone(input_ids=b["input_ids"][:,:self.max_len],
+                            attention_mask=b["attention_mask"][:,:self.max_len]).last_hidden_state
+            # print(b["input_ids"].shape)
+            for i in range(1,segments+1):
+                start=self.max_len-self.edge_len+(i-1)*self.inner_len
+                end=self.max_len-self.edge_len+(i-1)*self.inner_len+self.max_len
+                end=min(end,L)
+                x_next=b["input_ids"][:,start:end]
+                mask_next=b["attention_mask"][:,start:end]
+                x_next=self.backbone(input_ids=x_next,attention_mask=mask_next).last_hidden_state
+                if i==segments:
+                    x_next=x_next[:,self.edge_len:]
+                else:
+                    x_next=x_next[:,self.edge_len:self.edge_len+self.inner_len]
+                x=torch.cat([x,x_next],1)
+                # print(x.shape)
+
+
+        # x = self.backbone(b["input_ids"],b["attention_mask"]).last_hidden_state
         x = self.dropout(x)
         x = self.fc(x)
         x = aggregate_tokens_to_words(x, b['word_boxes'])

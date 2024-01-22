@@ -125,13 +125,21 @@ def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: 
 
     return score_result
 
+
+LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
+LABEL = {l: t for l, t in enumerate(LABEL2TYPE)}
+
 def score_feedback(pred_df, gt_df,return_class_scores=False):
     df = pred_df.merge(gt_df,how='outer',on=['document',"token"],suffixes=('_p','_g'))
 
     df['status'] = "TN"
 
     df.loc[df.label_gt.isna(),'status'] = "FP"
+    # df.loc[(df.label_gt.notna()) & (df.label_gt!=df.label_pred),'status'] = "FN"
+
+
     df.loc[df.label_pred.isna(),'status'] = "FN"
+    df.loc[(df.label_gt.notna()) & (df.label_gt!=df.label_pred),'status'] = "FN"
 
     df.loc[(df.label_pred.notna()) & (df.label_gt.notna()) & (df.label_gt==df.label_pred),'status'] = "TP"
 
@@ -139,11 +147,28 @@ def score_feedback(pred_df, gt_df,return_class_scores=False):
     FN = (df['status']=="FN").sum()
     TP = (df['status']=="TP").sum()
 
-    s_micro = (1+(5**2))*TP/((1+(5**2))*TP + ((5**2)*FN) + FP)
-    s_macro = s_micro
+    s_micro = (1+(5**2))*TP/(((1+(5**2))*TP) + ((5**2)*FN) + FP)
+
+    dic_class = {}
+    classes = gt_df['label'].unique()
+    for c in classes:
+        dx = df[(df.label_gt.isna()) | (df.label_g==c)].reset_index()
+        dx['status'] = "TN"
+        dx.loc[df.label_gt.isna(),'status'] = "FP"
+        # df.loc[(df.label_gt.notna()) & (df.label_gt!=df.label_pred),'status'] = "FN"
+        dx.loc[dx.label_pred.isna(),'status'] = "FN"
+        dx.loc[(dx.label_gt.notna()) & (dx.label_gt!=dx.label_pred),'status'] = "FN"
+
+        dx.loc[(dx.label_pred.notna()) & (dx.label_gt.notna()) & (dx.label_gt==dx.label_pred),'status'] = "TP"
+
+        fp = (dx['status']=="FP").sum()
+        fn = (dx['status']=="FN").sum()
+        tp = (dx['status']=="TP").sum()
+        s = (1+(5**2))*tp/(((1+(5**2))*tp) + ((5**2)*fn) + fp) if tp+fp+fn !=0 else -1
+        dic_class[LABEL[c]] = s
     # df.loc[(df.label_pred.notna()) & (df.label_gt.notna()) & (df.label_gt==df.label_pred),'status'] = "TP"
 
 
     # s_micro = fbeta_score(df['label'].values, df['label_pred'].values, average='micro', beta=5)
     # s_macro = fbeta_score(df['label'].values, df['label_pred'].values, average='macro', beta=5)
-    return s_micro,s_macro
+    return s_micro,dic_class
