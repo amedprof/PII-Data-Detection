@@ -58,7 +58,7 @@ class FeedbackModel(nn.Module):
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.fc = nn.Linear(self.config.hidden_size, num_labels)
         
-        print(self.max_len)
+        # print(self.max_len)
         if self.pretrained_path:
             try:
                 self.load_from_cp()
