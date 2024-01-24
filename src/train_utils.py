@@ -750,6 +750,27 @@ def kfold(args,df):
     folds = df[df[args.kfold_name]!=-1][args.kfold_name].unique()
     print(f"----------- {args.kfold_name} ---------")
     
+    config = {"model":args.model,'dataset':args.dataset,"exp_name":args.exp_name}
+            
+    config.update({"data":args.data})
+    config.update({"optimizer":args.optimizer})
+    config.update({'scheduler':args.scheduler})
+    config.update({"train_loader":args.train_loader})
+    config.update({"val_loader":args.val_loader})
+    config.update({"trainer":args.trainer})
+    config.update({"callbacks":args.callbacks})
+    
+    with open(args.checkpoints_path+'/params.json', 'w') as f:
+        json.dump(config, f)
+
+    if args.callbacks['use_wnb']:
+        wandb.init(project=args.project_name,
+                name=f'{args.exp_name}_fold_{i+1}',
+                group=f'{args.exp_name}',
+                #  job_type="training", 
+                config=config,
+                )
+                
     for i in args.selected_folds:
         if i in folds:
             print(f"\n-------------   Fold {i+1} / {k}  -------------\n")
@@ -768,26 +789,7 @@ def kfold(args,df):
             print(f"Training size {len(train_df)}")
             print(f"Validation size {len(valid_df)}")
 
-            config = {"model":args.model,'dataset':args.dataset,"exp_name":args.exp_name}
             
-            config.update({"data":args.data})
-            config.update({"optimizer":args.optimizer})
-            config.update({'scheduler':args.scheduler})
-            config.update({"train_loader":args.train_loader})
-            config.update({"val_loader":args.val_loader})
-            config.update({"trainer":args.trainer})
-            config.update({"callbacks":args.callbacks})
-            
-            with open(args.checkpoints_path+'/params.json', 'w') as f:
-                json.dump(config, f)
-
-            if args.callbacks['use_wnb']:
-                wandb.init(project=args.project_name,
-                        name=f'{args.exp_name}_fold_{i+1}',
-                        group=f'{args.exp_name}',
-                        #  job_type="training", 
-                        config=config,
-                        )
             train_one_fold(args,
                                 train_df,
                                 valid_df,
