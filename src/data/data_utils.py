@@ -26,6 +26,10 @@ codecs.register_error("replace_encoding_with_utf8", replace_encoding_with_utf8)
 codecs.register_error("replace_decoding_with_cp1252", replace_decoding_with_cp1252)
 
 
+def remove_double_spaces(text):
+    # Use a regular expression to replace consecutive spaces with a single space
+    cleaned_text = re.sub(r'\s+', ' ', text)
+    return cleaned_text
 
 def resolve_encodings_and_normalize(text: str) -> str:
     """Resolve the encoding problems and normalize the abnormal characters."""
@@ -44,6 +48,7 @@ def clean_text(text):
     text = resolve_encodings_and_normalize(text)
     # text = text.replace(u'\xa0', u' ')
     # text = text.replace(u'\x85', u'\n')
+    text = remove_double_spaces(text)
     text = text.strip()
     return text
 

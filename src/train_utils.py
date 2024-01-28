@@ -24,10 +24,10 @@ from data.dataset import FeedbackDataset,CustomCollator,ID_TYPE,ID_NAME,LABEL2TY
 from torch.utils.data import DataLoader
 
 from model_zoo.models import FeedbackModel,span_nms,aggregate_tokens_to_words
-from metrics_loss.metrics import score_feedback,score
+from metrics_loss.metrics import score_feedback,score,pii_fbeta_score_v2,compute_metrics
 from transformers import get_linear_schedule_with_warmup,get_cosine_schedule_with_warmup,get_polynomial_decay_schedule_with_warmup,get_cosine_with_hard_restarts_schedule_with_warmup
 
-from sklearn.metrics import log_loss 
+# from sklearn.metrics import log_loss 
 from tqdm.auto import tqdm
 
 from utils.utils import count_parameters
@@ -390,7 +390,10 @@ def evaluation_step(args,model,val_loader,criterion):
 
 
     # try:
-    micro_f1,macro_f1 = score_feedback(pred_df, gt_df,return_class_scores=False) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
+    pred_df['label'] = pred_df['labels'].map(ID_NAME)
+    gt_df['label'] = gt_df['labels'].map(ID_NAME)
+    scores = compute_metrics(pred_df, gt_df) #score(gt_df, pred_df, row_id_column_name = "row_id", beta = 5)#score_feedback(pred_df, gt_df,return_class_scores=False)
+    # s = pii_fbeta_score_v2(pred_df, gt_df, beta=5)
     # except:
         # micro_f1,macro_f1 = 0,{}
 
@@ -400,9 +403,11 @@ def evaluation_step(args,model,val_loader,criterion):
     log_vars = dict(
         valid_loss=losses,
         # f5_macro = macro_f1,
-        f5_micro = micro_f1,
+        f5_micro = scores['f5_micro'],
+        # f5_micro_new = micro_f1_new,
+        # score = s
     )
-    log_vars.update(macro_f1)
+    log_vars.update(scores['ents_per_type'])
     return log_vars
 # ------------------------------------------ ------------------------------------------- #
 def inference_step(args,df):
