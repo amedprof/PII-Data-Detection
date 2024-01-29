@@ -161,6 +161,10 @@ def pii_fbeta_score_v2(pred_df, gt_df, beta=5):
     return s_micro
 
 
+
+LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
+LABEL = {l: t for l, t in enumerate(LABEL2TYPE)}
+
 def score_feedback(pred_df, gt_df):
     df = pred_df.merge(gt_df,how='outer',on=['document',"token"],suffixes=('_p','_g'))
 
@@ -198,22 +202,24 @@ def score_feedback(pred_df, gt_df):
     dic_class = {}
     classes = gt_df['label'].unique()
     for c in classes:
-        dx = df[(df.label_gt.isna()) | (df.label_g==c)].reset_index()
+        
+        dx = pred_df[pred_df.label==c].merge(gt_df[gt_df.label==c],how='outer',on=['document',"token"],suffixes=('_p','_g'))
+#         dx = df[(df.label_gt.isna()) | (df.label_g==c) | (df.label_p==c)].reset_index()
         dx["cm1"] = ""
     
-        dx.loc[dx.label_gt.isna(), "cm"] = "FP"
-        dx.loc[dx.label_pred.isna(), "cm"] = "FN"
+        dx.loc[dx.label_gt.isna(), "cm1"] = "FP"
+        dx.loc[dx.label_pred.isna(), "cm1"] = "FN"
 
         # df.loc[(df.label_gt.notna()) & (df.label_gt != df.label_pred), "cm"] = "FNFP"
-        dx.loc[(dx.label_gt.notna() & dx.label_pred.notna()) & (dx.label_gt != dx.label_pred), "cm"] = "FNFP" # CHANGED
+        dx.loc[(dx.label_gt.notna() & dx.label_pred.notna()) & (dx.label_gt != dx.label_pred), "cm1"] = "FNFP" # CHANGED
 
         dx.loc[
-            (dx.label_pred.notna()) & (dx.label_gt.notna()) & (dx.label_gt == dx.label_pred), "cm"
+            (dx.label_pred.notna()) & (dx.label_gt.notna()) & (dx.label_gt == dx.label_pred), "cm1"
         ] = "TP"
 
-        FP = (dx["cm"].isin({"FP", "FNFP"})).sum()
-        FN = (dx["cm"].isin({"FN", "FNFP"})).sum()
-        TP = (dx["cm"] == "TP").sum()
+        FP = (dx["cm1"].isin({"FP", "FNFP"})).sum()
+        FN = (dx["cm1"].isin({"FN", "FNFP"})).sum()
+        TP = (dx["cm1"] == "TP").sum()
         s = (1+(5**2))*TP/(((1+(5**2))*TP) + ((5**2)*FN) + FP)
     
 #         s = (1+(5**2))*tp/(((1+(5**2))*tp) + ((5**2)*fn) + fp) if tp+fp+fn !=0 else -1
@@ -224,7 +230,6 @@ def score_feedback(pred_df, gt_df):
     # s_micro = fbeta_score(df['label'].values, df['label_pred'].values, average='micro', beta=5)
     # s_macro = fbeta_score(df['label'].values, df['label_pred'].values, average='macro', beta=5)
     return s_micro_new,s_micro,dic_class
-
 
 
 
@@ -335,5 +340,5 @@ def compute_metrics(pred_df, gt_df):
         # "ents_p": totals.precision,
         # "ents_r": totals.recall,
         "f5_micro": totals.f5,
-        "ents_per_type": {k: v.to_dict() for k, v in score_per_type.items() if k!= 'O' if "f5" in k},
+        "ents_per_type": {k: v.to_dict()['f5'] for k, v in score_per_type.items() if k!= 'O' },
     }
