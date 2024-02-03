@@ -7,6 +7,7 @@ import gc
 
 # from mmcv.cnn import bias_init_with_prob
 from torchvision.ops import roi_align, nms
+from model_zoo.pooling import NLPPooling
 
 def aggregate_tokens_to_words(feat, word_boxes):
     feat = feat.permute(0, 2, 1).unsqueeze(2)
@@ -30,18 +31,22 @@ def span_nms(start, end, score, nms_thr=0.5):
 class FeedbackModel(nn.Module):
     def __init__(self,
                  model_name,
-                 num_labels = 8,
+                 num_labels = 9,
                  config_path=None,
                  pretrained_path = None,
                  use_dropout=False,
                  use_gradient_checkpointing = False,
+                 pooling_params = {},
                  max_len = 512*4
                  ):
         super().__init__()
+
+        self.num_labels = num_labels
         k = max_len//512
         self.max_len = max_len
         self.inner_len = 64*k
         self.edge_len = 384*k
+        self.pooling_params = pooling_params
         self.pretrained_path = pretrained_path
         self.config = AutoConfig.from_pretrained(model_name, output_hidden_states=True) if not config_path else torch.load(config_path)
 
@@ -57,6 +62,11 @@ class FeedbackModel(nn.Module):
         self.backbone = AutoModel.from_pretrained(model_name,config=self.config) if not config_path else AutoModel.from_config(self.config)        
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.fc = nn.Linear(self.config.hidden_size, num_labels)
+
+        self.pooling_params.update({"in_features":self.config.hidden_size,
+                                    "out_features":self.config.hidden_size
+                                    })
+        self.pool_ly = NLPPooling(**self.pooling_params)
         
         # print(self.max_len)
         if self.pretrained_path:
@@ -128,10 +138,18 @@ class FeedbackModel(nn.Module):
 
         # x = self.backbone(b["input_ids"],b["attention_mask"]).last_hidden_state
         x = self.dropout(x)
+        # print(x.shape)
         x = self.fc(x)
         x = aggregate_tokens_to_words(x, b['word_boxes'])
-        # obj_pred = x[..., 0]
-        # reg_pred = x[..., 1:3]
-        # type_pred = x[..., 3:-3]
-        # eff_pred = x[..., -3:]
-        return x
+        # x = self.fc(x) # fullconnect before averaging embeddings
+        # print(x.shape)
+        
+        # print(x.shape)
+        # x = aggregate_tokens_to_words(x, b['word_boxes']).unsqueeze(0)
+        
+        pred = {"pred":x.squeeze()[:,:8]}
+        if self.num_labels==9:
+            # b['attention_mask'] = torch.ones(1,x.shape[1]).to(x.device)
+            # y = self.pool_ly(x,b['attention_mask'])[:,-1]
+            pred['y'] = x.squeeze()[:,-1]
+        return pred 

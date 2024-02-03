@@ -337,8 +337,8 @@ def compute_metrics(pred_df, gt_df):
         totals += prf
 
     return {
-        # "ents_p": totals.precision,
-        # "ents_r": totals.recall,
+        "f5_prec": totals.precision,
+        "f5_rec": totals.recall,
         "f5_micro": totals.f5,
         "ents_per_type": {k: v.to_dict()['f5'] for k, v in score_per_type.items() if k!= 'O' },
     }

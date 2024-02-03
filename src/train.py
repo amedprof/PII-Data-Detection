@@ -55,6 +55,7 @@ def parse_args():
     parser.add_argument("--rep", type=int, default=1, required=False) 
     parser.add_argument("--exp", type=str, default='v0', required=False) 
     parser.add_argument("--model_name", type=str, default=None, required=False) 
+    parser.add_argument("--external_data", type=str, default=None, required=False) 
     parser.add_argument("--bs", type=int, default=None, required=False) 
     parser.add_argument("--epochs", type=int, default=None, required=False) 
     parser.add_argument("--lr", type=float, default=None, required=False) 
@@ -85,6 +86,13 @@ if __name__ == "__main__":
     seed_everything(args.seed)
     
     df = pd.read_json(DATA_PATH/'train.json')
+
+    # if cfg.external_data:
+    #     print("Using external data")
+    #     dx = pd.read_json(DATA_PATH/f'{cfg.external_data}.json')
+    #     # dx[name] = -1
+    #     df = pd.concat([df,dx],axis=0).reset_index(drop=True)
+
     df['has_label'] = (df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))>0)*1
 
     LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
@@ -102,6 +110,13 @@ if __name__ == "__main__":
                 df.loc[val_, name] = fold
             # valid_df[name] = 0
     
+    if cfg.external_data:
+        print("Using external data")
+        dx = pd.read_json(DATA_PATH/f'{cfg.external_data}.json')
+        dx[name] = -1
+        df = pd.concat([df,dx],axis=0).reset_index(drop=True)
+
+    print(df.groupby(name)[list(LABEL2TYPE)[:-1]].sum())
     # data_path = Path(r"/database/kaggle/Identify Contrails/data")
     # df = pd.concat([train_df,valid_df],axis=0).reset_index(drop=True)
     # df['file_name'] = str(data_path/"3c_all_images/")+'/'+df['record_id'].astype(str)+'.npy'

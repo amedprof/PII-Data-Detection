@@ -1,63 +1,56 @@
 import torch
 from torch import nn
 
-class RMSELoss(nn.Module):
-    def __init__(self, reduction='none', eps=1e-9):
-        super().__init__()
-        self.mse = nn.MSELoss(reduction='none')
-        self.reduction = reduction
-        self.eps = eps
 
-    def forward(self, y_pred, y_true):
-        loss = self.mse(y_pred.float(), y_true.float()) 
-        
-        if self.reduction == 'none':
-            loss = loss
-        elif self.reduction == 'sum':
-            loss = loss.sum(dim=0)
-        elif self.reduction == 'mean':
-            loss = loss.mean(dim=0)
-        
-        return torch.sqrt(loss+ self.eps)
+from torch.nn import functional as F
 
-class FeedbackLoss(nn.Module):
-    def __init__(self,
-                 loss_name='RMSELoss',
-                 loss_param = {"reduction":"mean"},
-                 reduction="mean",weights=None,
-                 ):
-        super().__init__()
-        self.loss_func = eval(loss_name)(**loss_param)
-        self.eps = 1e-9
-        self.reduction = reduction
-        self.weights = torch.tensor(weights) if weights else None
+# =============================================================================== #
+class BCEFocalLoss(nn.Module):
+    def __init__(self, weight=None, gamma=2):
+        super(BCEFocalLoss, self).__init__()
+        self.weight = weight
+        self.gamma = gamma
 
-    def forward(self, y_pred, y_true):
-        loss = self.loss_func(y_pred.float(), y_true.float())
-        if self.weights is not None:
-            loss = loss * self.weights.to(y_pred.device)
-            if self.reduction == 'sum':
-                loss = loss.sum()
-            else:
-                loss = loss.sum() / self.weights.sum()
-        else:
-            if self.reduction == 'sum':
-                loss = loss.sum()
-            else:
-                loss = loss.mean()
-        return loss
+    def forward(self, input, target):
+        ce_loss = F.cross_entropy(input, target, weight=self.weight)
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+        return focal_loss
+    
 
-import numpy as np
+# =============================================================================== #
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
 
-def mcrmse(targets, predictions):
-    error = targets - predictions
-    squared_error = np.square(error)
-    colwise_mse = np.mean(squared_error, axis=0)
-    root_colwise_mse = np.sqrt(colwise_mse)
-    return np.mean(root_colwise_mse, axis=0)
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=0, alpha=None, size_average=True):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        if isinstance(alpha,(float,int,long)): self.alpha = torch.Tensor([alpha,1-alpha])
+        if isinstance(alpha,list): self.alpha = torch.Tensor(alpha)
+        self.size_average = size_average
 
+    def forward(self, input, target):
+        if input.dim()>2:
+            input = input.view(input.size(0),input.size(1),-1)  # N,C,H,W => N,C,H*W
+            input = input.transpose(1,2)    # N,C,H*W => N,H*W,C
+            input = input.contiguous().view(-1,input.size(2))   # N,H*W,C => N*H*W,C
+        target = target.view(-1,1)
 
-def comp_metric(outputs, targets):
-    colwise_rmse = torch.sqrt(torch.mean(torch.square(targets - outputs), dim=0))
-    metric = torch.mean(colwise_rmse, dim=0)
-    return metric.item(), colwise_rmse
+        logpt = F.log_softmax(input)
+        logpt = logpt.gather(1,target)
+        logpt = logpt.view(-1)
+        pt = Variable(logpt.data.exp())
+
+        if self.alpha is not None:
+            if self.alpha.type()!=input.data.type():
+                self.alpha = self.alpha.type_as(input.data)
+            at = self.alpha.gather(0,target.data.view(-1))
+            logpt = logpt * Variable(at)
+
+        loss = -1 * (1-pt)**self.gamma * logpt
+        if self.size_average: return loss.mean()
+        else: return loss.sum()

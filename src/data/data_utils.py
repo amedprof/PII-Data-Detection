@@ -45,7 +45,7 @@ def resolve_encodings_and_normalize(text: str) -> str:
 
 def clean_text(text):
     text = text.replace(u'\x9d', u' ')
-    text = resolve_encodings_and_normalize(text)
+    # text = resolve_encodings_and_normalize(text)
     # text = text.replace(u'\xa0', u' ')
     # text = text.replace(u'\x85', u'\n')
     text = remove_double_spaces(text)

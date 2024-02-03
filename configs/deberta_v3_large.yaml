@@ -26,7 +26,10 @@ model:
     use_gradient_checkpointing : true
     config_path : 
     pretrained_path : 
-    max_len : 2048
+    max_len : 4096
+    pooling_params :
+      pooling_name: MeanPooling
+      params : {}
     
   pretrained_weights : 
   pretrained_tokenizer : 
@@ -34,6 +37,11 @@ model:
   loss:
     loss_name : nn.CrossEntropyLoss
     loss_params : {"reduction":"mean"}
+
+  lossy:
+    loss_name : nn.BCEWithLogitsLoss
+    loss_params : {"reduction":"mean"}
+
 optimizer:
   name : optim.AdamW
   params : 

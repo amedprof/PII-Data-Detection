@@ -17,7 +17,7 @@ ID_TYPE = {"0-0":0,"0-1":1,
            "3-0":6,"3-1":7,
            "4-0":8,"4-1":9,
            "5-0":10,"5-1":11,
-           "6-0":12,"6-1":12
+           "6-0":12,"6-1":13
           }
 
 ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
@@ -63,6 +63,7 @@ class FeedbackDataset(Dataset):
         text = df['full_text']
         text_id = df['document']
         labels = [] if not self.is_train else df['labels']
+        has_label = -1 if not self.is_train else df['has_label']
         
         tokens = self.tokenizer(text, return_offsets_mapping=True)
         input_ids = torch.LongTensor(tokens['input_ids'])
@@ -99,7 +100,7 @@ class FeedbackDataset(Dataset):
         gt_spans = []        
         for i,label in enumerate(labels) :
 #             if i not in err:
-            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1])
+            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1,has_label])
             
         gt_spans = torch.LongTensor(gt_spans)
 
@@ -127,6 +128,7 @@ class FeedbackDataset(Dataset):
             for name in LABEL2TYPE:
                 test_df[name] = test_df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ]))
 
+            test_df['has_label'] = (test_df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))>0)*1
 #         test_df['nb_labels'] = test_df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))
         return test_df
     

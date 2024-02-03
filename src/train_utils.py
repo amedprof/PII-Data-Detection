@@ -315,7 +315,7 @@ def get_optim_sched(model,args,plot=False):
 
 # # ----------------- One Step --------------------- #
 # # ----------------- One Step --------------------- #
-def training_step(args,model,data,criterion):
+def training_step(args,model,data,criterion,criteriony):
     model.train()
     device = model.backbone.device
     data = to_gpu(data, device)
@@ -323,23 +323,41 @@ def training_step(args,model,data,criterion):
     if args.trainer['use_amp']:
         with amp.autocast(args.trainer['use_amp']):
             pred = model(data)
-
+            
             mask = (data["word_boxes"]!=-100)[:,0]          
-            loss = criterion(pred[mask],data["gt_spans"][mask,1])
+            lossx = criterion(pred[mask],data["gt_spans"][mask,1])
+            lossy = criteriony(y,data["gt_spans"][mask,-1].to(torch.float32))
+            loss = lossx+lossy
             log_vars = dict(
                 train_loss=loss.item(),
+                train_lossy = lossy.item(),
+                train_lossx = lossx.item()
                             )
 
     else:
         pred = model(data)
-        mask = (data["word_boxes"]!=-100)[:,0]          
-        loss = criterion(pred[mask],data["gt_spans"][mask,1])
+
+        # print(y.shape)
+        # print(data["gt_spans"][:1,-1].shape)
+        
+        mask = (data["word_boxes"]!=-100)[:,0]  
+        # print(sum(mask))        
+        lossx = criterion(pred["pred"][mask],data["gt_spans"][mask,1])
+        if "y" in pred.keys():
+            lossy = criteriony(pred['y'][mask],data["gt_spans"][mask,-1].to(torch.float32))
+            loss = lossx+lossy
+        else:
+            loss = lossx
+
         log_vars = dict(
             train_loss=loss.item(),
+            train_lossx = lossx.item()
                         )
+        if "y" in pred.keys():
+            log_vars["train_lossy"] = lossy.item()
     return loss,log_vars
 
-def evaluation_step(args,model,val_loader,criterion):
+def evaluation_step(args,model,val_loader,criterion,criteriony):
 
     device = model.backbone.device
     model.eval()
@@ -353,9 +371,17 @@ def evaluation_step(args,model,val_loader,criterion):
             pred = model(data)
 
             mask = (data["word_boxes"]!=-100)[:,0]  
-            loss = criterion(pred[mask],data["gt_spans"][mask,1])
-            losses.append(loss.item())
+            lossx = criterion(pred["pred"][mask],data["gt_spans"][mask,1])
 
+            if "y" in pred.keys():
+                lossy = criteriony(pred['y'][mask],data["gt_spans"][mask,-1].to(torch.float32))
+                loss = lossx+lossy
+                losses.append([loss.item(),lossx.item(),lossy.item()])
+            else:
+                loss = lossx
+                losses.append([loss.item(),lossx.item()])
+
+            pred = pred['pred']
             pred  = pred.softmax(-1)
             s,i = pred.max(-1)
             p_df = pd.DataFrame({"document":data['text_id'],
@@ -376,11 +402,27 @@ def evaluation_step(args,model,val_loader,criterion):
             
 
     pred_df = pd.concat(pred_df,axis=0).reset_index(drop=True)
-    pred_df = pred_df[(pred_df.label!=7) & (pred_df.score>0.5)].reset_index(drop=True)
+
+    pred_df["label_next_e_prev"] = pred_df.groupby('document')['label'].transform(lambda x: (x.shift(1)==x.shift(-1))*1)
+    pred_df["label_next"] = pred_df.groupby('document')['label'].transform(lambda x: x.shift(1))
+    pred_df["label_next_e_prev"] = ((pred_df["label_next_e_prev"]==1) & (pred_df["label_next"]==6))*1
+    pred_df["score_next"] = pred_df.groupby('document')['score'].transform(lambda x: x.shift(1))
+    pred_df.loc[pred_df["label_next_e_prev"]==1,"label"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"label_next"]
+    pred_df.loc[pred_df["label_next_e_prev"]==1,"score"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"score_next"]
+
+
+    pred_df = pred_df[(pred_df.label!=7) & ((pred_df.score>0.15))].reset_index(drop=True)
     pred_df["I"] = ((pred_df.groupby('document')['label'].transform(lambda x:x.diff())==0) & (pred_df.groupby('document')['token'].transform(lambda x:x.diff())==1))*1
     pred_df['labels'] = pred_df['label'].astype(str)+'-'+pred_df['I'].astype(str)
     pred_df["label_pred"] = pred_df["labels"].map(ID_TYPE).fillna(0).astype(int)
     pred_df['row_id'] = np.arange(len(pred_df))
+
+
+    # pred_df = pred_df[(pred_df.label!=7) & (pred_df.score>0.5)].reset_index(drop=True)
+    # pred_df["I"] = ((pred_df.groupby('document')['label'].transform(lambda x:x.diff())==0) & (pred_df.groupby('document')['token'].transform(lambda x:x.diff())==1))*1
+    # pred_df['labels'] = pred_df['label'].astype(str)+'-'+pred_df['I'].astype(str)
+    # pred_df["label_pred"] = pred_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+    # pred_df['row_id'] = np.arange(len(pred_df))
 
     gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
     gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
@@ -398,11 +440,14 @@ def evaluation_step(args,model,val_loader,criterion):
         # micro_f1,macro_f1 = 0,{}
 
     # macro_f1 = micro_f1
-    losses = np.mean(losses)
+    losses = np.mean(losses,axis=0)
 
     log_vars = dict(
-        valid_loss=losses,
-        # f5_macro = macro_f1,
+        valid_loss=losses[0],
+        valid_lossx=losses[1],
+        valid_lossy=losses[-1],
+        f5_prec = scores['f5_prec'],
+        f5_rec = scores['f5_rec'],
         f5_micro = scores['f5_micro'],
         # f5_micro_new = micro_f1_new,
         # score = s
@@ -462,8 +507,9 @@ def fit_net(
     names = [ x for x in LABEL2TYPE  if x in train_dataset.df.columns.tolist()]
     weight = torch.Tensor([1/train_dataset.df[name].sum() for name in names])
     loss_params.update({"weight":weight})
-    print(weight)
+
     criterion = eval(args.model['loss']['loss_name'])(**loss_params).to(device)
+    criteriony = eval(args.model['lossy']['loss_name'])(**args.model['lossy']['loss_params']).to(device)
     # criterion = eval(args.model['loss'])(**args.model['loss_params']).to(device)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     collator = CustomCollator(tokenizer,model)
@@ -536,7 +582,7 @@ def fit_net(
             if step==epoch and step==0:
                 print(" ".join(train_dataset.tokenizer.convert_ids_to_tokens(data['input_ids'][0])))
 
-            loss,trc= training_step(args,model,data,criterion)
+            loss,trc= training_step(args,model,data,criterion,criteriony)
 
             pbar.set_postfix(trc)
             if step==0:
@@ -592,7 +638,7 @@ def fit_net(
                 if args.trainer['ema_decay_rate']>0:
                     ema.apply_shadow()
 
-                metric_val = evaluation_step(args,model,val_loader,criterion)
+                metric_val = evaluation_step(args,model,val_loader,criterion,criteriony)
 
                 # if es:
                 if args.callbacks['mode']=='min':
@@ -768,13 +814,7 @@ def kfold(args,df):
     with open(args.checkpoints_path+'/params.json', 'w') as f:
         json.dump(config, f)
 
-    if args.callbacks['use_wnb']:
-        wandb.init(project=args.project_name,
-                name=f'{args.exp_name}_fold_{i+1}',
-                group=f'{args.exp_name}',
-                #  job_type="training", 
-                config=config,
-                )
+    
                 
     for i in args.selected_folds:
         if i in folds:
@@ -788,12 +828,19 @@ def kfold(args,df):
                 valid_df = df[df[args.kfold_name]==i].reset_index(drop=True)#.sample(100)
 
             else:
-                train_df = df[(df[args.kfold_name]!=i)].reset_index(drop=True)
+                train_df = df[~(df[args.kfold_name].isin([i]))].reset_index(drop=True)
                 valid_df = df[df[args.kfold_name]==i].reset_index(drop=True)
 
             print(f"Training size {len(train_df)}")
             print(f"Validation size {len(valid_df)}")
 
+            if args.callbacks['use_wnb']:
+                wandb.init(project=args.project_name,
+                        name=f'{args.exp_name}_fold_{i+1}',
+                        group=f'{args.exp_name}',
+                        #  job_type="training", 
+                        config=config,
+                        )
             
             train_one_fold(args,
                                 train_df,
