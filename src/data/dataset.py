@@ -26,7 +26,8 @@ ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
            "3-0":"B-ID_NUM","3-1":"I-ID_NUM",
            "4-0":"B-PHONE_NUM","4-1":"I-PHONE_NUM",
            "5-0":"B-URL_PERSONAL","5-1":"I-URL_PERSONAL",
-           "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS"
+           "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS",
+           "7-0":"O","7-1":"O"
           }
 
 
