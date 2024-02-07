@@ -72,7 +72,7 @@ val_loader:
   shuffle: false
 
 trainer:
-  use_amp: false
+  use_amp: true
   epochs: 6
   sample: false
   train_all_data : false

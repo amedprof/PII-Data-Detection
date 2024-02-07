@@ -323,16 +323,25 @@ def training_step(args,model,data,criterion,criteriony):
     if args.trainer['use_amp']:
         with amp.autocast(args.trainer['use_amp']):
             pred = model(data)
+
+            # print(y.shape)
+            # print(data["gt_spans"][:1,-1].shape)
             
-            mask = (data["word_boxes"]!=-100)[:,0]          
-            lossx = criterion(pred[mask],data["gt_spans"][mask,1])
-            lossy = criteriony(y,data["gt_spans"][mask,-1].to(torch.float32))
-            loss = lossx+lossy
+            mask = (data["word_boxes"]!=-100)[:,0]  
+            # print(sum(mask))        
+            lossx = criterion(pred["pred"][mask],data["gt_spans"][mask,1])
+            if "y" in pred.keys():
+                lossy = criteriony(pred['y'][mask],data["gt_spans"][mask,-1].to(torch.float32))
+                loss = lossx+lossy
+            else:
+                loss = lossx
+
             log_vars = dict(
                 train_loss=loss.item(),
-                train_lossy = lossy.item(),
                 train_lossx = lossx.item()
                             )
+            if "y" in pred.keys():
+                log_vars["train_lossy"] = lossy.item()
 
     else:
         pred = model(data)
