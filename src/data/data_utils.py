@@ -28,6 +28,7 @@ codecs.register_error("replace_decoding_with_cp1252", replace_decoding_with_cp12
 
 def remove_double_spaces(text):
     # Use a regular expression to replace consecutive spaces with a single space
+    # cleaned_text = re.sub(r'\s{2,}', ' | ', text)
     cleaned_text = re.sub(r'\s+', ' ', text)
     return cleaned_text
 

@@ -140,6 +140,7 @@ class FeedbackModel(nn.Module):
         x = self.dropout(x)
         # print(x.shape)
         x = self.fc(x)
+        # print(x.squeeze()[:6,:])
         x = aggregate_tokens_to_words(x, b['word_boxes'])
         # x = self.fc(x) # fullconnect before averaging embeddings
         # print(x.shape)

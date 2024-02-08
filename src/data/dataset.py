@@ -64,7 +64,7 @@ class FeedbackDataset(Dataset):
         text = df['full_text']
         text_id = df['document']
         labels = [] if not self.is_train else df['labels']
-        has_label = -1 if not self.is_train else df['has_label']
+        # has_label = -1 if not self.is_train else df['has_label']
         
         tokens = self.tokenizer(text, return_offsets_mapping=True)
         input_ids = torch.LongTensor(tokens['input_ids'])
@@ -101,7 +101,8 @@ class FeedbackDataset(Dataset):
         gt_spans = []        
         for i,label in enumerate(labels) :
 #             if i not in err:
-            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1,has_label])
+            # gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1,has_label])
+            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1])
             
         gt_spans = torch.LongTensor(gt_spans)
 
@@ -113,8 +114,10 @@ class FeedbackDataset(Dataset):
             mask_inds = all_inds[:n_mask]
             input_ids[mask_inds] = self.tokenizer.mask_token_id
 
-        return dict(text=text,
+        return dict(
                     text_id=text_id,
+                    # text=text,
+                    tokens = df['tokens'],
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     word_boxes=word_boxes,
@@ -196,12 +199,14 @@ class CustomCollator(object):
         attention_mask[0, :seq_length] = sample['attention_mask']
 
         text_id = sample['text_id']
-        text = sample['text']
+        tokens = sample['tokens']
+        # text = sample['text']
         word_boxes = sample['word_boxes']
         gt_spans = sample['gt_spans']
 
         return dict(text_id=text_id,
-                    text=text,
+                    # text=text,
+                    tokens = tokens,
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     word_boxes=word_boxes,
