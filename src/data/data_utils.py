@@ -130,7 +130,7 @@ def _get_essay(df):
 
 
 def get_text_start_end(txt, s, search_from=0):
-    txt = txt[int(search_from):]
+    txt = txt[int(search_from):];
     try:
         idx = txt.find(s)
         if idx >= 0:
@@ -298,3 +298,154 @@ def get_start_end_offset(col):
         # print(search_from)
         return get_offset_mapping(txt,toks)
     return search_start_end
+
+
+
+
+
+# ======================================================================================== #
+import numpy as np
+
+def find_successive_numbers(input_array):
+    result = []
+    current_sublist = []
+
+    for num in input_array:
+        if not current_sublist or num == current_sublist[-1] + 1:
+            current_sublist.append(num)
+        else:
+            result.append(current_sublist)
+            current_sublist = [num]
+
+    if current_sublist:
+        result.append(current_sublist)
+
+    return result
+# ======================================================================================== #
+
+import re
+from mimesis import Generic
+
+def generate_random_data_with_probabilities():
+    generic = Generic()
+
+    # Probabilities for each country
+    country_probabilities = {'fr': 0.5, 'en': 0.1, 'it': 0.1, 'de': 0.1, 'es': 0.2}
+
+    # Function to randomly choose a country based on probabilities
+    def choose_country():
+        return generic.random.choices(list(country_probabilities.keys()), weights=country_probabilities.values())
+
+    # Generate random data
+    country = choose_country()[0]
+    generic = Generic(locale=country)
+    name = generic.person.full_name()
+#     phone_number = generic.person.telephone()
+#     username = generic.person.username()
+#     email = generic.person.email()
+#     address = generic.address.address()
+#     surname = generic.person.surname()
+    ret = dict(
+              NAME_STUDENT=name
+              )
+    return ret
+# ======================================================================================== #
+
+def generate_ent(labels,tokens):
+    
+    idx_lab = np.argwhere(np.array(labels)!="O").reshape(-1)
+    pos = sorted(find_successive_numbers(idx_lab),reverse=True,key=len)
+
+    lab = np.array(labels)
+    toks = np.array(tokens)
+
+    ent = {}
+    for i,p in enumerate(pos):
+        l = np.unique([x.split('-')[-1] for x in lab[p]]).tolist()
+        t = toks[p].tolist()
+        if 'NAME_STUDENT' in l:
+            full_name = " ".join(t)
+            ent[full_name] = l[-1]
+
+        else:
+            full_name = " ".join(t)
+            ent[full_name] = l[-1]
+    return ent
+# ======================================================================================== #
+from spacy.lang.en import English
+en_tokenizer = English().tokenizer
+
+def tokenize_with_spacy(text, tokenizer=en_tokenizer):
+    tokenized_text = tokenizer(text)
+    tokens = [token.text for token in tokenized_text]
+    offset_mapping = [(token.idx,token.idx+len(token)) for token in tokenized_text]
+    return {'tokens': tokens, 'offset_mapping': offset_mapping}
+# ======================================================================================== #
+
+def create_mapper_n_clean(full_text,labels,tokens,attribut=["NAME_STUDENT"]):
+    ent = generate_ent(labels,tokens)
+    mapper = {}
+    label_mapper = {}
+    for k,v in ent.items():
+        if v in attribut:      
+            dc_ent = generate_random_data_with_probabilities()
+            if 'NAME_STUDENT' in v:
+                names = k.split()
+                if k not in mapper.keys():
+                    mapper[k] = dc_ent[v]
+                    label_mapper[dc_ent[v]] = v
+                if len(k.split())>1:
+                    map_ = dc_ent[v].split()
+                    if names[0] not in mapper.keys():
+                        mapper[names[0]] = map_[0]
+                        label_mapper[map_[0]] = v
+                    if " ".join(names[1:]) not in mapper.keys():
+                        mapper[" ".join(names[1:])] = " ".join(map_[1:]) 
+                        label_mapper[" ".join(names[1:])] = v
+                else:
+                    map_ = dc_ent[v].split()
+                    if names[0] not in mapper.keys():
+                        mapper[names[0]] = map_[0]
+                        label_mapper[map_[0]] = v      
+
+            else:
+                mapper[k] = dc_ent[v]
+                label_mapper[dc_ent[v]] = v
+
+            if k in mapper.keys():
+                full_text = re.sub(k,mapper[k],full_text)
+            else:
+                full_text = re.sub(k,dc_ent[v],full_text)
+        else:
+            label_mapper[k] = v
+    
+    full_text = clean_text(full_text)
+    
+    # print(label_mapper)
+    # print(mapper)
+
+    tokenized_text = tokenize_with_spacy(full_text, tokenizer=en_tokenizer)
+    tokens = tokenized_text['tokens']
+    # tg = get_offset_mapping(full_text, list(label_mapper.keys()))
+    
+    offs = {}
+    for s in list(label_mapper.keys()):
+        res = [(m.start(0), m.end(0)) for m in re.finditer(s,full_text)]
+        if len(res):
+            offs[s] = res
+            
+    labels = []
+    for tok, off in zip(tokens, tokenized_text['offset_mapping']):
+        found_label = False
+        for k, ofs in offs.items():
+            for o in ofs:
+                if o[0] <= off[0] < o[1] or o[0] < off[1] < o[1]:
+                    labels.append(label_mapper[k])
+                    found_label = True
+                    break
+            if found_label:
+                break
+        else:
+            labels.append('O')
+        
+    return full_text,labels,tokens

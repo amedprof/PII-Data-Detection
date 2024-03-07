@@ -42,10 +42,10 @@ class FeedbackModel(nn.Module):
         super().__init__()
 
         self.num_labels = num_labels
-        k = max_len//512
+        k = max_len//512 if (max_len//512)>0 else max_len//256
         self.max_len = max_len
-        self.inner_len = 64*k
-        self.edge_len = 384*k
+        self.inner_len = 64*k if (max_len//512)>0 else 32*k
+        self.edge_len = 384*k if (max_len//512)>0 else 192*k
         self.pooling_params = pooling_params
         self.pretrained_path = pretrained_path
         self.config = AutoConfig.from_pretrained(model_name, output_hidden_states=True) if not config_path else torch.load(config_path)
@@ -56,10 +56,33 @@ class FeedbackModel(nn.Module):
                                 {
                                     "hidden_dropout_prob": 0.0,
                                     "attention_probs_dropout_prob": 0.0,
+
+
+                                    # "hidden_size": 1536,
+                                    # "initializer_range": 0.02,
+                                    # "intermediate_size": 6144,
+                                    # "max_position_embeddings": 512,
+                                    # "relative_attention": true,
+                                    # "position_buckets": 256,
+                                    # "norm_rel_ebd": "layer_norm",
+                                    # "share_att_key": true,
+                                    # "pos_att_type": "p2c|c2p",
+                                    # "layer_norm_eps": 1e-7,
+                                    # "conv_kernel_size": 3,
+                                    # "conv_act": "gelu",
+                                    # "max_relative_positions": -1,
+                                    # "position_biased_input": false,
+                                    # "num_attention_heads": 32,
+                                    # "attention_head_size": 64,
+                                    # "num_hidden_layers": 48,
+                                    # "type_vocab_size": 0,
+                                    # "vocab_size": 128100
+
                                 }
                                     )
+            # print(self.config)
 
-        self.backbone = AutoModel.from_pretrained(model_name,config=self.config) if not config_path else AutoModel.from_config(self.config)        
+        self.backbone = AutoModel.from_pretrained(model_name,config=self.config,ignore_mismatched_sizes=True) if not config_path else AutoModel.from_config(self.config)        
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.fc = nn.Linear(self.config.hidden_size, num_labels)
 
@@ -137,6 +160,7 @@ class FeedbackModel(nn.Module):
 
 
         # x = self.backbone(b["input_ids"],b["attention_mask"]).last_hidden_state
+        # print(x)
         x = self.dropout(x)
         # print(x.shape)
         x = self.fc(x)
@@ -153,4 +177,5 @@ class FeedbackModel(nn.Module):
             # b['attention_mask'] = torch.ones(1,x.shape[1]).to(x.device)
             # y = self.pool_ly(x,b['attention_mask'])[:,-1]
             pred['y'] = x.squeeze()[:,-1]
+        # print(pred)
         return pred 

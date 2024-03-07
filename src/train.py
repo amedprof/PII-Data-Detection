@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument("--rep", type=int, default=1, required=False) 
     parser.add_argument("--exp", type=str, default='v0', required=False) 
     parser.add_argument("--model_name", type=str, default=None, required=False) 
-    parser.add_argument("--external_data", type=str, default=None, required=False) 
+    parser.add_argument("--external_data",nargs='+', type=str, default=[], required=False) 
     parser.add_argument("--bs", type=int, default=None, required=False) 
     parser.add_argument("--epochs", type=int, default=None, required=False) 
     parser.add_argument("--lr", type=float, default=None, required=False) 
@@ -110,25 +110,27 @@ if __name__ == "__main__":
                 df.loc[val_, name] = fold
             # valid_df[name] = 0
     
-    if cfg.external_data:
+    if len(cfg.external_data):
         print("Using external data")
-        dx = pd.read_json(DATA_PATH/f'{cfg.external_data}.json')
-        LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
-        for name in LABEL2TYPE[:-1]:
-            dx[name] = ((dx['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
+        for ext in cfg.external_data:
+            print(ext)
+            dx = pd.read_json(DATA_PATH/f'{ext}.json')
+            LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
+            for name in LABEL2TYPE[:-1]:
+                dx[name] = ((dx['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
 
-        seeds = [42]
-        folds_names = []
-        for K in [5]:  
-            for seed in seeds:
-                mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
-                name = f"fold_msk_{K}_seed_{seed}"
-                dx[name] = -1
-                for fold, (trn_, val_) in enumerate(mskf.split(dx,dx[list(LABEL2TYPE)[:-1]])):
-                    dx.loc[val_, name] = fold
+            seeds = [42]
+            folds_names = []
+            for K in [5]:  
+                for seed in seeds:
+                    mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
+                    name = f"fold_msk_{K}_seed_{seed}"
+                    dx[name] = -1
+                    for fold, (trn_, val_) in enumerate(mskf.split(dx,dx[list(LABEL2TYPE)[:-1]])):
+                        dx.loc[val_, name] = fold
 
-        # dx[name] = -1
-        df = pd.concat([df,dx],axis=0).reset_index(drop=True)
+            # dx[name] = -1
+            df = pd.concat([df,dx],axis=0).reset_index(drop=True)
 
     print(df.groupby(name)[list(LABEL2TYPE)[:-1]].sum())
     # data_path = Path(r"/database/kaggle/Identify Contrails/data")

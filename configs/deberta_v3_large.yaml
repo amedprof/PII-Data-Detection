@@ -15,9 +15,11 @@ data:
   params_train :
     mask_prob : 0.0
     mask_ratio : 0.0
+    en_train : false
   params_valid :
     mask_prob : 0.0
     mask_ratio : 0.0
+    en_train : false
 model:
   model_params : 
     model_name : microsoft/deberta-large
@@ -72,7 +74,7 @@ val_loader:
   shuffle: false
 
 trainer:
-  use_amp: true
+  use_amp: false
   epochs: 6
   sample: false
   train_all_data : false
@@ -84,7 +86,7 @@ trainer:
 callbacks:
   save : true
   es: true
-  patience: 10
+  patience: 15
   verbose_eval: 1
   epoch_pct_eval: 0.2
   epoch_eval_dist: "uniforme"

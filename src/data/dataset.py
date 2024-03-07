@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
-from data.data_utils import clean_text,get_start_end,get_offset_mapping,get_start_end_offset
+from data.data_utils import clean_text,get_start_end,get_offset_mapping,get_start_end_offset,create_mapper_n_clean
 
 from tqdm.auto import tqdm
 
@@ -37,11 +37,13 @@ class FeedbackDataset(Dataset):
                  df,
                  tokenizer,
                  mask_prob=0.0,
-                 mask_ratio=0.0
+                 mask_ratio=0.0,
+                 en_train = False
                  ):
         
         self.tokenizer = tokenizer
         self.is_train = "labels" in df.columns
+        self.en_train = en_train
         if len(self.tokenizer.encode("\n\n"))==2:
             print("Warning : n SEP will be replace by | ")
             df["full_text"] = df['full_text'].transform(lambda x:x.str.replace("\n\n"," | "))
@@ -64,8 +66,16 @@ class FeedbackDataset(Dataset):
         text = df['full_text']
         text_id = df['document']
         labels = [] if not self.is_train else df['labels']
+
+        if df['NAME_STUDENT']>0 and self.en_train:
+            text,labels,tokenss = create_mapper_n_clean(text,labels,df['tokens'],attribut=["NAME_STUDENT"])
+            # text = clean_text(text)        
+            # tokens = [clean_text(i) for i in tokens]
+            df['offset'] = get_offset_mapping(text,tokenss)
+            df['tokens'] = tokenss
         # has_label = -1 if not self.is_train else df['has_label']
-        
+        # print(df['offset'])
+
         tokens = self.tokenizer(text, return_offsets_mapping=True)
         input_ids = torch.LongTensor(tokens['input_ids'])
         attention_mask = torch.LongTensor(tokens['attention_mask'])
@@ -102,7 +112,7 @@ class FeedbackDataset(Dataset):
         for i,label in enumerate(labels) :
 #             if i not in err:
             # gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1,has_label])
-            gt_spans.append([i,TYPE2LABEL[label.split('-')[1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1])
+            gt_spans.append([i,TYPE2LABEL[label.split('-')[-1] if label!="O" else "O"],0 if label.split('-')[0]=="B" else 1])
             
         gt_spans = torch.LongTensor(gt_spans)
 
@@ -116,7 +126,8 @@ class FeedbackDataset(Dataset):
 
         return dict(
                     text_id=text_id,
-                    # text=text,
+                    text=text,
+                    labels = labels,
                     tokens = df['tokens'],
                     input_ids=input_ids,
                     attention_mask=attention_mask,

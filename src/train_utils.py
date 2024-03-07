@@ -834,7 +834,7 @@ def kfold(args,df):
 
             elif args.trainer['train_all_data']:
                 train_df = df.reset_index(drop=True)#.sample(100)
-                valid_df = df[df[args.kfold_name]==i].reset_index(drop=True)#.sample(100)
+                valid_df = df.reset_index(drop=True)#.sample(100) #df[df[args.kfold_name]==i].reset_index(drop=True)#.sample(100)
 
             else:
                 train_df = df[~(df[args.kfold_name].isin([i]))].reset_index(drop=True)
