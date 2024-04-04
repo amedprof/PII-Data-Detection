@@ -342,3 +342,49 @@ def compute_metrics(pred_df, gt_df):
         "f5_micro": totals.f5,
         "ents_per_type": {k: v.to_dict()['f5'] for k, v in score_per_type.items() if k!= 'O' },
     }
+
+
+def compute_metrics_new(pred_df, gt_df):
+    """
+    Compute the LB metric (lb) and other auxiliary metrics
+    """
+    
+    references = {(row.document, row.token, row.label) for row in gt_df.itertuples()}
+    predictions = {(row.document, row.token, row.label) for row in pred_df.itertuples()}
+
+    score_per_type = defaultdict(PRFScore)
+    references = set(references)
+
+    for ex in predictions:
+        pred_type = ex[-1] # (document, token, label)
+        # if pred_type != 'O':
+        #     pred_type = pred_type[2:] # avoid B- and I- prefix
+            
+        if pred_type not in score_per_type:
+            score_per_type[pred_type] = PRFScore()
+
+        if ex in references:
+            score_per_type[pred_type].tp += 1
+            references.remove(ex)
+        else:
+            score_per_type[pred_type].fp += 1
+
+    for doc, tok, ref_type in references:
+        # if ref_type != 'O':
+        #     ref_type = ref_type[2:] # avoid B- and I- prefix
+        
+        if ref_type not in score_per_type:
+            score_per_type[ref_type] = PRFScore()
+        score_per_type[ref_type].fn += 1
+
+    totals = PRFScore()
+    
+    for prf in score_per_type.values():
+        totals += prf
+
+    return {
+        "f5_prec": totals.precision,
+        "f5_rec": totals.recall,
+        "f5_micro": totals.f5,
+        "ents_per_type": {k: v.to_dict()['f5'] for k, v in score_per_type.items() if k!= 'O' },
+    }

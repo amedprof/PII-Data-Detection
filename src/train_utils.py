@@ -320,6 +320,8 @@ def training_step(args,model,data,criterion,criteriony):
     device = model.backbone.device
     data = to_gpu(data, device)
 
+    # print(data['gt_spans'])
+
     if args.trainer['use_amp']:
         with amp.autocast(args.trainer['use_amp']):
             pred = model(data)
@@ -514,6 +516,7 @@ def fit_net(
 
     loss_params = args.model['loss']['loss_params']
     names = [ x for x in LABEL2TYPE  if x in train_dataset.df.columns.tolist()]
+    # print(names)
     weight = torch.Tensor([1/train_dataset.df[name].sum() for name in names])
     loss_params.update({"weight":weight})
 

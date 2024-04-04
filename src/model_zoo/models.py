@@ -31,7 +31,7 @@ def span_nms(start, end, score, nms_thr=0.5):
 class FeedbackModel(nn.Module):
     def __init__(self,
                  model_name,
-                 num_labels = 9,
+                 num_labels = 8,
                  config_path=None,
                  pretrained_path = None,
                  use_dropout=False,
@@ -177,5 +177,5 @@ class FeedbackModel(nn.Module):
             # b['attention_mask'] = torch.ones(1,x.shape[1]).to(x.device)
             # y = self.pool_ly(x,b['attention_mask'])[:,-1]
             pred['y'] = x.squeeze()[:,-1]
-        # print(pred)
+        # print(pred["pred"].shape)
         return pred 

@@ -15,12 +15,35 @@ import torch
 
 from train_utils import inference_step
 
+
+ 
+import torch.nn as nn
+from torch.cuda import amp
+import torch.optim as optim
+import torch.nn.functional as F
+
+from transformers import AutoTokenizer, AutoModel, AutoConfig
+ 
+from data.data_utils import to_gpu,to_np
+from data.dataset import FeedbackDataset,CustomCollator
+from torch.utils.data import DataLoader
+
+from model_zoo.models import FeedbackModel,span_nms,aggregate_tokens_to_words
+from metrics_loss.metrics import score_feedback,score,pii_fbeta_score_v2,compute_metrics,compute_metrics_new
+from transformers import get_linear_schedule_with_warmup,get_cosine_schedule_with_warmup,get_polynomial_decay_schedule_with_warmup,get_cosine_with_hard_restarts_schedule_with_warmup
+
+from sklearn.metrics import log_loss 
+from tqdm.auto import tqdm
+
+from utils.utils import count_parameters
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
 
-DATA_PATH = Path(r"/database/kaggle/Shovel Ready/data")
-CHECKPOINT_PATH = Path(r"/database/kaggle/Shovel Ready/checkpoint")
+data_path = Path(r"/database/kaggle/PII/data")
+CHECKPOINT_PATH = Path(r"/database/kaggle/PII/checkpoint")
 
 
 from datetime import date
@@ -28,9 +51,10 @@ from datetime import date
 def parse_args():
     parser = argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description="")
-    parser.add_argument("--folder", help="folder filename")
+    parser.add_argument("--model_name", type=str, default=None, required=False)
     parser.add_argument("--device", type=int, default='0', required=False)   
-    parser.add_argument("--weights", type=str, default=None, required=False) 
+    parser.add_argument("--blend", type=int, default=0, required=False)   
+    parser.add_argument("--exp_name", type=str, default=None, required=False) 
     parser.add_argument("--bs", type=int, default=None, required=False) 
 
     parser_args, _ = parser.parse_known_args(sys.argv)
@@ -40,34 +64,192 @@ def parse_args():
 if __name__ == "__main__":
     
     cfg = parse_args()
-
-    f = open(CHECKPOINT_PATH/f'{cfg.folder}/params.json')
-    args = json.load(f)
-    args = SimpleNamespace(**args)
-
-    args.device = cfg.device
-    args.folder = cfg.folder
-
     
-    df = pd.read_csv(DATA_PATH/'persuade_corpus.csv')
-    LABEL2EFFEC = ('Adequate', 'Effective', 'Ineffective')
-    EFFEC2LABEL = {t: l for l, t in enumerate(LABEL2EFFEC)}
+    df = pd.read_csv(data_path/'pii-masking-200k.csv')
+    df["offset_mapping"] = df["offset_mapping"].transform(lambda x:eval(x))
+    df["labels"] = df["labels"].transform(lambda x:eval(x))
+    df["tokens"] = df["tokens"].transform(lambda x:eval(x))
 
-    df_valid = df.loc[df['competition_set'] == "test"].reset_index(drop=True)
-    df_valid = df_valid.loc[df_valid['discourse_type'] != "Unannotated"]
-    df_valid = df_valid[df_valid.discourse_effectiveness.isin(LABEL2EFFEC)].reset_index(drop=True)
-    df_valid = df_valid[df_valid.test_split_feedback_1=='Public']
-    df_valid = df_valid[df_valid.discourse_effectiveness.isin(LABEL2EFFEC)]
-    df_valid['fold'] = 0
 
-    df = df.loc[df['discourse_type'] != "Unannotated"]
-    df.discourse_effectiveness = df.discourse_effectiveness.fillna('Adequate')
+    LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
+    TYPE2LABEL = {t: l for l, t in enumerate(LABEL2TYPE)}
+    LABEL2TYPE = {l: t for l, t in enumerate(LABEL2TYPE)}
 
-    args.model['pretrained_weights'] = str(CHECKPOINT_PATH/cfg.folder/cfg.weights)
-    args.pretrained_weights = str(CHECKPOINT_PATH/cfg.folder/cfg.weights)
-    args.model_name =  args.model["model_params"]["model_name"]
-    if cfg.bs is not None:
-        args.val_loader["batch_size"] = cfg.bs
-    
-    args.folder = CHECKPOINT_PATH/f'{cfg.folder}'
-    inference_step(args,df)
+    ID_TYPE = {"0-0":0,"0-1":1,
+           "1-0":2,"1-1":3,
+           "2-0":4,"2-1":5,
+           "3-0":6,"3-1":7,
+           "4-0":8,"4-1":9,
+           "5-0":10,"5-1":11,
+           "6-0":12,"6-1":13
+          }
+    ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
+            "1-0":"B-EMAIL","1-1":"I-EMAIL",
+            "2-0":"B-USERNAME","2-1":"I-USERNAME",
+            "3-0":"B-ID_NUM","3-1":"I-ID_NUM",
+            "4-0":"B-PHONE_NUM","4-1":"I-PHONE_NUM",
+            "5-0":"B-URL_PERSONAL","5-1":"I-URL_PERSONAL",
+            "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS",
+            "7-0":"O","7-1":"O"
+            }
+
+    def inference_steps(df,folder,bs=1,folds=[0]):
+        
+        # ==== Loading Args =========== #
+        f = open(f'{folder}/params.json')
+        args = json.load(f)
+        args = SimpleNamespace(**args)
+        args.val_loader['batch_size'] = bs
+        args.model['pretrained_tokenizer'] = f"{folder}/tokenizer"
+        args.model['model_params']['config_path'] = f"{folder}/config.pth"
+        args.model['pretrained_weights'] = None
+        args.model["model_params"]['pretrained_path'] = None
+    #     args.model["model_params"]['max_len'] = 3048
+        
+        args.device = 1
+        f.close()
+        device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
+        
+        # ==== Loading dataset =========== #
+        tokenizer = AutoTokenizer.from_pretrained(args.model["model_params"]['model_name'])
+        valid_dataset = eval(args.dataset)(df,tokenizer,**args.data["params_valid"])
+        
+        
+        
+        # ==== Loading checkpoints =========== #
+        checkpoints = [x.as_posix() for x in (Path(folder)).glob("*.pth") if f"config" not in x.as_posix()]
+        checkpoints = [ x for x in checkpoints if any([f"fold_{fold}" in x for fold in folds])]
+        print(checkpoints)
+        weights = [1/len(checkpoints)]*len(checkpoints)
+        
+        
+        # ==== Loop Inference =========== #
+        doc_ids = []
+        tokens = []
+        tokens_v = []
+        predictions = None
+        gt_df = []
+        for j,(checkpoint,weight) in enumerate(zip(checkpoints,weights)):
+            net = FeedbackModel(**args.model["model_params"])
+            net.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage))
+            net = net.to(device)
+            net.eval()
+            
+            collator = CustomCollator(tokenizer,net)
+            val_loader = DataLoader(valid_dataset,**args.val_loader,collate_fn=collator)
+        
+
+            
+            preds = []
+            with torch.no_grad():
+                for data in tqdm(val_loader):
+                    data = to_gpu(data, device)
+                    
+    #                 pred = net(data)['pred']
+    #                 preds.append(pred.detach().cpu().to(torch.float32))
+    # #                 pred  = pred.softmax(-1)
+                    
+                    
+                    if j==0:
+                    
+                        doc_ids+=[data['text_id']]*len(data['tokens'])
+                        tokens+=np.arange(len(data['tokens'])).tolist()
+                        tokens_v += data['tokens']
+                        data = to_np(data)
+                        gt = pd.DataFrame({
+                                        "document":data['text_id'],
+                                        "token":np.arange(len(data['tokens'])),
+                                        "label":data["gt_spans"][:,1],
+                                        "I":data["gt_spans"][:,2],
+                                        })
+                        gt_df.append(gt)
+
+            
+            
+            
+            # if predictions is not None:
+            #     predictions = torch.cat([torch.max(predictions[:, :-1], torch.cat(preds,dim=0)[:, :-1]),
+            #                             torch.min(predictions[:, -1:], torch.cat(preds,dim=0)[:, -1:])],dim=-1)
+                
+            # else:
+            #     predictions = torch.cat(preds,dim=0)#*weight
+        
+        # predictions = predictions.softmax(-1)
+        # s,i = predictions.max(-1)
+        pred_df = pd.DataFrame({"document":doc_ids,
+                                    "token" : tokens,
+                                    "tokens":tokens_v,
+                                    # "label" : i.numpy() ,
+                                    # "score" : s.numpy() ,
+    #                                  "o_score":predictions[:,-1].numpy()
+                                    })
+        
+        # ==== Loop Inference =========== #
+        del valid_dataset
+        del val_loader
+        del net
+        # del s,i
+        del predictions
+
+        gc.collect()
+        
+
+        gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
+        gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+        gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
+        gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+        gt_df['row_id'] = np.arange(len(gt_df))
+
+        
+        
+        return pred_df , gt_df
+
+    def make_pred_df(pred_df,threshold=0.15):
+        pred_df["label_next_e_prev"] = pred_df.groupby('document')['label'].transform(lambda x: (x.shift(1)==x.shift(-1))*1)
+        pred_df["label_next"] = pred_df.groupby('document')['label'].transform(lambda x: x.shift(1))
+        pred_df["label_next_e_prev"] = ((pred_df["label_next_e_prev"]==1) & (pred_df["label_next"]==6))*1
+        pred_df["score_next"] = pred_df.groupby('document')['score'].transform(lambda x: x.shift(1))
+        pred_df.loc[pred_df["label_next_e_prev"]==1,"label"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"label_next"]
+        pred_df.loc[pred_df["label_next_e_prev"]==1,"score"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"score_next"]
+        
+        
+        pred_df = pred_df[(pred_df.label!=7) & ((pred_df.score>threshold))].reset_index(drop=True)
+        
+        
+        pred_df["I"] = ((pred_df.groupby('document')['label'].transform(lambda x:x.diff())==0) & (pred_df.groupby('document')['token'].transform(lambda x:x.diff())==1))*1
+        pred_df['labels'] = pred_df['label'].astype(str)+'-'+pred_df['I'].astype(str)
+        pred_df["label_pred"] = pred_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+        pred_df['row_id'] = np.arange(len(pred_df))
+        
+        pred_df['label'] = pred_df['label'].map(LABEL2TYPE)
+        # pred_df['label'] = pred_df['labels'].map(ID_NAME)
+        return pred_df
+
+    pred = []
+    gt = []
+    FOLD_NAME = "fold_msk_5_seed_42"
+    folder = str(CHECKPOINT_PATH/Path(fr'{FOLD_NAME}/{cfg.model_name}/{cfg.exp_name}')) 
+
+    if cfg.blend:
+        pred_df,gt_df = inference_steps(df,folder,bs=1,folds=[0,1,2,3,4,5,6,7,8,9,10])
+        pred_df.to_csv(Path(folder)/f'pii-200-ms-blend.csv',index=False)
+        pred_df = make_pred_df(pred_df,threshold=0.15)
+        gt_df['label'] = gt_df['label'].map(LABEL2TYPE)
+        s = compute_metrics_new(pred_df, gt_df)
+        print(s)
+        print("\n")
+        
+    else:
+        for FOLD in range(1):
+            pred_df,gt_df = inference_steps(df,folder,bs=1,folds=[FOLD])
+            # pred_df.to_csv(Path(folder)/f'pii-200-ms-fold-{FOLD}.csv',index=False)
+            # pred_df = make_pred_df(pred_df,threshold=0.15)
+            # gt_df['label'] = gt_df['label'].map(LABEL2TYPE)
+            # s = compute_metrics_new(pred_df, gt_df)
+
+            # print(f"fold {FOLD} \n")
+            # print(s)
+            # print("\n")
+
+            if FOLD==0:
+                gt_df.to_csv(Path(folder)/f'pii-200-ms-gt.csv',index=False)
