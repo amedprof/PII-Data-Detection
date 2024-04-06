@@ -51,7 +51,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("-C", "--config", help="config filename")
-    parser.add_argument("--device", type=int, default='0', required=False)   
+    parser.add_argument("--device", type=int, default='0', required=False)  
+    parser.add_argument("--replace_text_prob", type=float, default=None, required=False)  
+    parser.add_argument("--add_text_prob", type=float, default=None, required=False) 
     parser.add_argument("--rep", type=int, default=1, required=False) 
     parser.add_argument("--exp", type=str, default='v0', required=False) 
     parser.add_argument("--model_name", type=str, default=None, required=False) 
@@ -99,9 +101,10 @@ if __name__ == "__main__":
     for name in LABEL2TYPE[:-1]:
         df[name] = ((df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
 
+    NB_FOLD = 4
     seeds = [42]
     folds_names = []
-    for K in [5]:  
+    for K in [NB_FOLD]:  
         for seed in seeds:
             mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
             name = f"fold_msk_{K}_seed_{seed}"
@@ -121,7 +124,7 @@ if __name__ == "__main__":
 
             seeds = [42]
             folds_names = []
-            for K in [5]:  
+            for K in [NB_FOLD]:  
                 for seed in seeds:
                     mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
                     name = f"fold_msk_{K}_seed_{seed}"
@@ -165,6 +168,12 @@ if __name__ == "__main__":
     
     if cfg.max_len is not None:
         args.model["model_params"]['max_len'] = cfg.max_len
+
+    if cfg.replace_text_prob is not None:
+        args.data["params_train"]['replace_text_prob'] = cfg.replace_text_prob
+
+    if cfg.add_text_prob is not None:
+        args.data["params_train"]['add_text_prob'] = cfg.add_text_prob
     
 
     args.model_name =  args.model["model_params"]["model_name"]
