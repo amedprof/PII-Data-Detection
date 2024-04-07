@@ -24,7 +24,7 @@ import torch
 
 try:
     from faker import Faker
-    fake = Faker()
+    fake = Faker(locale = ["fr_FR","fr_CA","en_US",'en_UK','de_DE','en_GB','en_IN','it_IT','fr_BE','es_ES'])
     Faker.seed(0)
 except:
     print('No faker installed')
@@ -249,9 +249,9 @@ class FeedbackDataset(Dataset):
                     gt_spans=gt_spans)
     # ======================================================================================== #
     def name_student(self,v):
-        # Add Name /Written by  for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
-        text = random.choices([f"Reflection – Visualization {v}",f'Person {v}',
-                       f"STORYTELLER {v}",f"STORY TELLING {v}",f"{v}"],k=1,weights = [0.125,0.125,0.125,0.125,0.5])[0]
+        # Add Name /Written by /Design Thinking for Innovation/Done by:/By for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
+        text = random.choices([f"Reflection – Visualization {v}",f'Person {v}',f'Name {v}',f'Written by {v}',f'Done by: {v}',f'By {v}',f'Design Thinking for Innovation {v}',
+                               f"STORYTELLER {v}",f"STORY TELLING {v}",f"{v}"],k=1,weights = [0.5/9]*9+[0.5])[0]
 
         return text
     # ======================================================================================== #
@@ -373,7 +373,7 @@ class FeedbackDataset(Dataset):
     def generate_random_data_with_probabilities(self):
 
         name = random.choices([fake.name(),fake.first_name(), fake.last_name()],
-                              weights = [0.7,0.15,0.15], k = 1)[0]  #generic.person.full_name()
+                              weights = [0.8,0.1,0.1], k = 1)[0]  #generic.person.full_name()
         phone_number =  fake.phone_number()
         username = fake.user_name()
         email = fake.ascii_free_email()
@@ -381,6 +381,20 @@ class FeedbackDataset(Dataset):
         id_num = random.choices([fake.passport_number(),fake.bban(),
                                  fake.iban(),self.generate_random_number(12)],k=1,weights = [0.1,0.10,0.15,0.65])[0]
         url_pers = self.generate_fake_social_media_urls()
+
+        punctuation_pattern = r'[^\w\s]'
+        # Replace punctuation with empty string
+        name = re.sub(punctuation_pattern, ' ', name)
+
+        stopwords_list = {'du', 'de', 'et'}
+        # Split the text into words and filter out stopwords
+        words = name.split()
+        filtered_words = [word for word in words if word.lower() not in stopwords_list]
+        # Join the filtered words back into a string
+        name = ' '.join(filtered_words)
+
+        
+
 
         ret = dict(
                   NAME_STUDENT=name,

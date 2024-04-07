@@ -101,7 +101,7 @@ if __name__ == "__main__":
     for name in LABEL2TYPE[:-1]:
         df[name] = ((df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
 
-    NB_FOLD = 4
+    NB_FOLD = 5
     seeds = [42]
     folds_names = []
     for K in [NB_FOLD]:  
