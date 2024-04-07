@@ -93,13 +93,18 @@ class FeedbackDataset(Dataset):
                  add_text_prob=1.,
                  replace_text_prob=1.,
                  attrib_to_replace = ['NAME_STUDENT','EMAIL','USERNAME','ID_NUM',
-                                      'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS']
+                                      'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS'],
+                 inference=False
                  ):
         
         self.tokenizer = tokenizer
         self.df = df
         self.use_re = use_re
         self.attrib_to_replace = attrib_to_replace
+        self.inference=False
+
+        
+
 
         if "labels" in self.df.columns:
             for name in LABEL2TYPE:
@@ -111,6 +116,10 @@ class FeedbackDataset(Dataset):
         assert 0 <= replace_text_prob <= 1
         self.add_text_prob = add_text_prob
         self.replace_text_prob = replace_text_prob
+
+        if self.inference:
+            self.add_text_prob = 0
+            self.replace_text_prob = 0
 
         if self.use_re:
             print('using re aggregation')
@@ -136,8 +145,8 @@ class FeedbackDataset(Dataset):
             text = self.clean_text(df['full_text'])
             txt_tokens = [self.clean_text(x) for x in df['tokens']]
             
-        labels = df['labels']
-        has_label = df['has_label']
+        labels = df['labels'] if not self.inference else []
+        has_label = df['has_label'] if not self.inference else []
         offset_mapping_init = self.get_offset_mapping(text,txt_tokens)
         
         ##############   Augmentation   #############
@@ -240,7 +249,7 @@ class FeedbackDataset(Dataset):
                     gt_spans=gt_spans)
     # ======================================================================================== #
     def name_student(self,v):
-        # Add Name for Name/ and Mobile/Tel for phone Email for mail
+        # Add Name /Written by  for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
         text = random.choices([f"Reflection – Visualization {v}",f'Person {v}',
                        f"STORYTELLER {v}",f"STORY TELLING {v}",f"{v}"],k=1,weights = [0.125,0.125,0.125,0.125,0.5])[0]
 

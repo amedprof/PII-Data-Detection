@@ -48,221 +48,154 @@ CHECKPOINT_PATH = Path(r"/database/kaggle/PII/checkpoint")
 
 from datetime import date
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument("--model_name", type=str, default=None, required=False)
-    parser.add_argument("--device", type=int, default=0, required=False)   
-    parser.add_argument("--blend", type=int, default=0, required=False)  
-    parser.add_argument("--max_len", type=int, default=4096, required=False)  
-    parser.add_argument("--exp_name", type=str, default=None, required=False) 
-    parser.add_argument("--folders",nargs='+', type=str, default=[], required=False) 
-    parser.add_argument("--bs", type=int, default=None, required=False) 
-
-    parser_args, _ = parser.parse_known_args(sys.argv)
-    return parser.parse_args()
 
 
-if __name__ == "__main__":
+ID_TYPE = {"0-0":0,"0-1":1,
+        "1-0":2,"1-1":3,
+        "2-0":4,"2-1":5,
+        "3-0":6,"3-1":7,
+        "4-0":8,"4-1":9,
+        "5-0":10,"5-1":11,
+        "6-0":12,"6-1":13
+        }
+ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
+        "1-0":"B-EMAIL","1-1":"I-EMAIL",
+        "2-0":"B-USERNAME","2-1":"I-USERNAME",
+        "3-0":"B-ID_NUM","3-1":"I-ID_NUM",
+        "4-0":"B-PHONE_NUM","4-1":"I-PHONE_NUM",
+        "5-0":"B-URL_PERSONAL","5-1":"I-URL_PERSONAL",
+        "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS",
+        "7-0":"O","7-1":"O"
+        }
+
+def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096):
     
-    cfg = parse_args()
+
+    doc_ids = []
+    tokens = []
+    tokens_v = []
+    predictions = None
+    gt_df = []
+
+    for gi,folder in enumerate(folders):
+        
+        # ==== Loading Args =========== #
+        f = open(f'{folder}/params.json')
+        args = json.load(f)
+        args = SimpleNamespace(**args)
+        args.val_loader['batch_size'] = bs
+        args.model['pretrained_tokenizer'] = f"{folder}/tokenizer"
+        args.model['model_params']['config_path'] = f"{folder}/config.pth"
+        args.model['pretrained_weights'] = None
+        args.model["model_params"]['pretrained_path'] = None
+        args.model["model_params"]['max_len'] = max_len
+        args.data['params_valid'] = {"add_text_prob":0,
+                                        "replace_text_prob":0,
+                                        "use_re":False
+                                        }
+        
+        args.device = selected_device
+        f.close()
+        device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
+        
+        # ==== Loading dataset =========== #
+        tokenizer = AutoTokenizer.from_pretrained(args.model["model_params"]['model_name'])
+        valid_dataset = eval(args.dataset)(df,tokenizer,**args.data["params_valid"])
+        
+        
+        
+        # ==== Loading checkpoints =========== #
+        checkpoints = [x.as_posix() for x in (Path(folder)).glob("*.pth") if f"config" not in x.as_posix()]
+        checkpoints = [ x for x in checkpoints if any([f"fold_{fold}" in x for fold in folds])]
+        
+        weights = [1/len(checkpoints)]*len(checkpoints)
     
-    # df = pd.read_csv(data_path/'pii-masking-200k.csv')
-    # df["offset_mapping"] = df["offset_mapping"].transform(lambda x:eval(x))
-    # df["labels"] = df["labels"].transform(lambda x:eval(x))
-    # df["tokens"] = df["tokens"].transform(lambda x:eval(x))
-
-    df = pd.read_json(data_path/'train.json')
-
-    LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
-    TYPE2LABEL = {t: l for l, t in enumerate(LABEL2TYPE)}
-    LABEL2TYPE = {l: t for l, t in enumerate(LABEL2TYPE)}
-
-    LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
-    for name in LABEL2TYPE[:-1]:
-        df[name] = ((df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
-
-    seeds = [42]
-    folds_names = []
-    for K in [5]:  
-        for seed in seeds:
-            mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
-            name = f"fold_msk_{K}_seed_{seed}"
-            df[name] = -1
-            for fold, (trn_, val_) in enumerate(mskf.split(df,df[list(LABEL2TYPE)[:-1]])):
-                df.loc[val_, name] = fold
-
-    external_data = False
-    if external_data:
-        print("Using external data")
-        dx = pd.read_json(data_path/f'mixtral-8x7b-v1.json')
-        LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
-        for name in LABEL2TYPE[:-1]:
-            dx[name] = ((dx['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
-
-        seeds = [42]
-        folds_names = []
-        for K in [5]:  
-            for seed in seeds:
-                mskf = MultilabelStratifiedKFold(n_splits=K,shuffle=True,random_state=seed)
-                name = f"fold_msk_{K}_seed_{seed}"
-                dx[name] = -1
-                for fold, (trn_, val_) in enumerate(mskf.split(dx,dx[list(LABEL2TYPE)[:-1]])):
-                    dx.loc[val_, name] = fold
-
-        df = pd.concat([df,dx],axis=0).reset_index(drop=True)
-
-    # dx[name] = -1
-    print(df.groupby(name)[list(LABEL2TYPE)[:-1]].sum())
-
-    print(cfg.device)
-
-    ID_TYPE = {"0-0":0,"0-1":1,
-           "1-0":2,"1-1":3,
-           "2-0":4,"2-1":5,
-           "3-0":6,"3-1":7,
-           "4-0":8,"4-1":9,
-           "5-0":10,"5-1":11,
-           "6-0":12,"6-1":13
-          }
-    ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
-            "1-0":"B-EMAIL","1-1":"I-EMAIL",
-            "2-0":"B-USERNAME","2-1":"I-USERNAME",
-            "3-0":"B-ID_NUM","3-1":"I-ID_NUM",
-            "4-0":"B-PHONE_NUM","4-1":"I-PHONE_NUM",
-            "5-0":"B-URL_PERSONAL","5-1":"I-URL_PERSONAL",
-            "6-0":"B-STREET_ADDRESS","6-1":"I-STREET_ADDRESS",
-            "7-0":"O","7-1":"O"
-            }
-
-    def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096):
-        
-
-        doc_ids = []
-        tokens = []
-        tokens_v = []
-        predictions = None
-        gt_df = []
-
-        for gi,folder in enumerate(folders):
-            
-            # ==== Loading Args =========== #
-            f = open(f'{folder}/params.json')
-            args = json.load(f)
-            args = SimpleNamespace(**args)
-            args.val_loader['batch_size'] = bs
-            args.model['pretrained_tokenizer'] = f"{folder}/tokenizer"
-            args.model['model_params']['config_path'] = f"{folder}/config.pth"
-            args.model['pretrained_weights'] = None
-            args.model["model_params"]['pretrained_path'] = None
-            args.model["model_params"]['max_len'] = max_len
-            args.data['params_valid'] = {"add_text_prob":0,
-                                            "replace_text_prob":0,
-                                            "use_re":False
-                                            }
-            
-            args.device = selected_device
-            f.close()
-            device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-            
-            # ==== Loading dataset =========== #
-            tokenizer = AutoTokenizer.from_pretrained(args.model["model_params"]['model_name'])
-            valid_dataset = eval(args.dataset)(df,tokenizer,**args.data["params_valid"])
-            
-            
-            
-            # ==== Loading checkpoints =========== #
-            checkpoints = [x.as_posix() for x in (Path(folder)).glob("*.pth") if f"config" not in x.as_posix()]
-            checkpoints = [ x for x in checkpoints if any([f"fold_{fold}" in x for fold in folds])]
-            
-            weights = [1/len(checkpoints)]*len(checkpoints)
-        
-        
-            # ==== Loop Inference =========== #
-            for j,(checkpoint,weight) in enumerate(zip(checkpoints,weights)):
-                
-                net = FeedbackModel(**args.model["model_params"])
-                net.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage))
-                net = net.to(device)
-                net.eval()
-                
-                collator = CustomCollator(tokenizer,net)
-                val_loader = DataLoader(valid_dataset,**args.val_loader,collate_fn=collator)
-            
-
-                
-                preds = []
-                with torch.no_grad():
-                    for data in tqdm(val_loader):
-                        data = to_gpu(data, device)
-                        
-                        pred = net(data)['pred']
-                        preds.append(pred.detach().cpu().to(torch.float32))
-        # #                 pred  = pred.softmax(-1)
-                        
-                        
-                        if j==0 and gi==0:
-                        
-                            doc_ids+=[data['text_id']]*pred.shape[0]
-                            tokens+=np.arange(pred.shape[0]).tolist()
-                            tokens_v += data['tokens']
-                            data = to_np(data)
-                            gt = pd.DataFrame({
-                                            "document":data['text_id'],
-                                            "token":np.arange(pred.shape[0]),
-                                            "label":data["gt_spans"][:,1],
-                                            "I":data["gt_spans"][:,2],
-                                            })
-                            gt_df.append(gt)
-
-            
-            
-            
-            if predictions is not None:
-                # predictions = torch.cat([torch.max(predictions[:, :-1], torch.cat(preds,dim=0)[:, :-1]),
-                #                         torch.min(predictions[:, -1:], torch.cat(preds,dim=0)[:, -1:])],dim=-1)
-                
-                predictions+= torch.cat(preds,dim=0)#*weight
-            else:
-                predictions = torch.cat(preds,dim=0)#*weight
-                
-    #         if predictions is not None:
-    # #             predictions = torch.max(predictions,torch.cat(preds,dim=0))
-    #             predictions+= torch.cat(preds,dim=0)*weight
-    #         else:
-    #             predictions = torch.cat(preds,dim=0)*weight
-    #             predictions+= torch.cat(preds,dim=0)*weight
-    #         print(predictions.shape)
-            print(checkpoint)
-        predictions = predictions.softmax(-1)
-        s,i = predictions.max(-1)
-        pred_df = pd.DataFrame({"document":doc_ids,
-                                    "token" : tokens,
-                                    "tokens":tokens_v,
-                                    "label" : i.numpy() ,
-                                    "score" : s.numpy() ,
-    #                                  "o_score":predictions[:,-1].numpy()
-                                    })
-        
+    
         # ==== Loop Inference =========== #
-        del valid_dataset
-        del val_loader
-        del net
-        # del s,i
-        del predictions
-
-        gc.collect()
+        for j,(checkpoint,weight) in enumerate(zip(checkpoints,weights)):
+            
+            net = FeedbackModel(**args.model["model_params"])
+            net.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage))
+            net = net.to(device)
+            net.eval()
+            
+            collator = CustomCollator(tokenizer,net)
+            val_loader = DataLoader(valid_dataset,**args.val_loader,collate_fn=collator)
         
 
-        gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
-        gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
-        gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
-        gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
-        gt_df['row_id'] = np.arange(len(gt_df))
+            
+            preds = []
+            with torch.no_grad():
+                for data in tqdm(val_loader):
+                    data = to_gpu(data, device)
+                    
+                    pred = net(data)['pred']
+                    preds.append(pred.detach().cpu().to(torch.float32))
+    # #                 pred  = pred.softmax(-1)
+                    
+                    
+                    if j==0 and gi==0:
+                    
+                        doc_ids+=[data['text_id']]*pred.shape[0]
+                        tokens+=np.arange(pred.shape[0]).tolist()
+                        tokens_v += data['tokens']
+                        data = to_np(data)
+                        gt = pd.DataFrame({
+                                        "document":data['text_id'],
+                                        "token":np.arange(pred.shape[0]),
+                                        "label":data["gt_spans"][:,1],
+                                        "I":data["gt_spans"][:,2],
+                                        })
+                        gt_df.append(gt)
 
         
         
-        return pred_df , gt_df
+        
+        if predictions is not None:
+            # predictions = torch.cat([torch.max(predictions[:, :-1], torch.cat(preds,dim=0)[:, :-1]),
+            #                         torch.min(predictions[:, -1:], torch.cat(preds,dim=0)[:, -1:])],dim=-1)
+            
+            predictions+= torch.cat(preds,dim=0)#*weight
+        else:
+            predictions = torch.cat(preds,dim=0)#*weight
+            
+#         if predictions is not None:
+# #             predictions = torch.max(predictions,torch.cat(preds,dim=0))
+#             predictions+= torch.cat(preds,dim=0)*weight
+#         else:
+#             predictions = torch.cat(preds,dim=0)*weight
+#             predictions+= torch.cat(preds,dim=0)*weight
+#         print(predictions.shape)
+        print(checkpoint)
+    predictions = predictions.softmax(-1)
+    s,i = predictions.max(-1)
+    pred_df = pd.DataFrame({"document":doc_ids,
+                                "token" : tokens,
+                                "tokens":tokens_v,
+                                "label" : i.numpy() ,
+                                "score" : s.numpy() ,
+#                                  "o_score":predictions[:,-1].numpy()
+                                })
+    
+    # ==== Loop Inference =========== #
+    del valid_dataset
+    del val_loader
+    del net
+    # del s,i
+    del predictions
+
+    gc.collect()
+    
+
+    gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
+    gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+    gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
+    gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+    gt_df['row_id'] = np.arange(len(gt_df))
+
+    
+    
+    return pred_df , gt_df
 
 
 

@@ -2,7 +2,7 @@ seed : -1
 
 project_name : "PII"
 
-kfold_name : fold_msk_4_seed_42
+kfold_name : fold_msk_5_seed_42
 selected_folds : [0,1,2,3,4] 
 
 name : ""
