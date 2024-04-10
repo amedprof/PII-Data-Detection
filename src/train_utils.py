@@ -413,7 +413,7 @@ def evaluation_step(args,model,val_loader,criterion,criteriony):
             
 
     pred_df = pd.concat(pred_df,axis=0).reset_index(drop=True)
-
+    
     pred_df["label_next_e_prev"] = pred_df.groupby('document')['label'].transform(lambda x: (x.shift(1)==x.shift(-1))*1)
     pred_df["label_next"] = pred_df.groupby('document')['label'].transform(lambda x: x.shift(1))
     pred_df["label_next_e_prev"] = ((pred_df["label_next_e_prev"]==1) & (pred_df["label_next"]==6))*1

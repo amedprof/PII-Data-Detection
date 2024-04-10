@@ -77,7 +77,7 @@ trainer:
   use_amp: false
   epochs: 6
   sample: false
-  train_all_data : false
+  train_all_data : true
   use_awp: false
   ema_decay_rate : 0
   grad_clip: false
@@ -92,7 +92,7 @@ callbacks:
   epoch_eval_dist: "uniforme"
   metric_track: f5_micro
   mode: max
-  top_k: 1
+  top_k: 5
   start_eval_epoch : 0
   save_last_k : 0
   use_wnb : false
