@@ -101,7 +101,7 @@ class FeedbackDataset(Dataset):
         self.df = df
         self.use_re = use_re
         self.attrib_to_replace = attrib_to_replace
-        self.inference=False
+        self.inference=inference
 
         
 
