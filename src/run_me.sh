@@ -23,7 +23,9 @@ python train.py --config ../configs/std_img_256_8c_f.yaml --rep 1 --device 0 --e
 
 
 
-python train.py --config '../configs/deberta_v3_large.yaml' --device 0 --model_name microsoft/deberta-v3-xsmall --bs 1 --epochs 3 --max_len 2048 --folds 0
+python train.py --config '../configs/deberta_v3_large.yaml' --device 0 --model_name microsoft/deberta-v3-xsmall --bs 1 --epochs 3 --max_len 4096 --folds 0
+python predict.py --model_name 'deberta-v3-large' --device 0 --max_len 4096 --exp_name 2024-04-03--dv3l_cp_nbrod_add05_rep_05_v1
+python train.py --config '../configs/deberta_v3_large.yaml' --device 0 --model_name microsoft/deberta-xlarge --bs 1 --epochs 7 --max_len 4096 --folds 0 1 2 3 4 --replace_text_prob 0.0 --add_text_prob 0.0 --external_data mixtral-8x7b-v1 --pct_eval 0.5
 
 
 

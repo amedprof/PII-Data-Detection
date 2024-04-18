@@ -112,7 +112,7 @@ if __name__ == "__main__":
             for fold, (trn_, val_) in enumerate(mskf.split(df,df[list(LABEL2TYPE)[:-1]])):
                 df.loc[val_, name] = fold
             # valid_df[name] = 0
-    
+    # df[name] = 0
     if len(cfg.external_data):
         print("Using external data")
         for ext in cfg.external_data:
@@ -131,7 +131,7 @@ if __name__ == "__main__":
                     dx[name] = -1
                     for fold, (trn_, val_) in enumerate(mskf.split(dx,dx[list(LABEL2TYPE)[:-1]])):
                         dx.loc[val_, name] = fold
-
+            # dx[name] = 1
             # dx[name] = -1
             df = pd.concat([df,dx],axis=0).reset_index(drop=True)
 

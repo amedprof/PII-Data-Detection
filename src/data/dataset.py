@@ -25,7 +25,7 @@ import torch
 try:
     from faker import Faker
     fake = Faker(locale = ["fr_FR","fr_CA","en_US",'en_UK','de_DE','en_GB','en_IN','it_IT','fr_BE','es_ES'])
-    Faker.seed(0)
+    # Faker.seed(0)
 except:
     print('No faker installed')
     
@@ -163,18 +163,18 @@ class FeedbackDataset(Dataset):
 
     
         # Add PII
-        if np.random.random() < self.add_text_prob:
-            # print("add")
-            try:
+        if (np.random.random() < self.add_text_prob) and (has_label==0):
+            #print("add")
+            #try:
 
-                new_text,new_tokens,new_labels,new_offset_mapping = self.generate_fake_data()
-                
+            new_text,new_tokens,new_labels,new_offset_mapping = self.generate_fake_data()
             
-                
-                text,txt_tokens,labels,offset_mapping_init  = self.add_text(text,txt_tokens,labels,offset_mapping_init,
-                                                                   new_text,new_tokens,new_labels,new_offset_mapping)
-            except:
-                pass
+        
+            
+            text,txt_tokens,labels,offset_mapping_init  = self.add_text(text,txt_tokens,labels,offset_mapping_init,
+                                                                new_text,new_tokens,new_labels,new_offset_mapping)
+            #except:
+               # print('hmm')
 
         ### Convert to regex space
         if self.use_re:
@@ -247,73 +247,185 @@ class FeedbackDataset(Dataset):
                     attention_mask=attention_mask,
                     word_boxes=word_boxes,
                     gt_spans=gt_spans)
+
     # ======================================================================================== #
     def name_student(self,v):
-        # Add Name /Written by /Design Thinking for Innovation/Done by:/By for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
+        # Add Name for Name/ and Mobile/Tel for phone Email for mail
+            # Add Name /Written by /Design Thinking for Innovation/Done by:/By for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
         text = random.choices([f"Reflection – Visualization {v}",f'Person {v}',f'Name {v}',f'Written by {v}',f'Done by: {v}',f'By {v}',f'Design Thinking for Innovation {v}',
-                               f"STORYTELLER {v}",f"STORY TELLING {v}",f"{v}"],k=1,weights = [0.5/9]*9+[0.5])[0]
-
+                                f"STORYTELLER {v}",f"STORY TELLING {v}",f"{v}"],k=1,weights = [0.5/9]*9+[0.5])[0]
+        
+        return text
+    # ======================================================================================== #
+    def phone_no(self,v):
+        # Add Name for Name/ and Mobile/Tel for phone Email for mail
+            # Add Name /Written by /Design Thinking for Innovation/Done by:/By for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
+        text = random.choices([f"Phone: {v}",f'Mobile: {v}',f"Tel: {v}",f"{v}"],k=1,weights = [0.5/3]*3+[0.5])[0]
+        
+        return text
+    # ======================================================================================== #
+    def email_add(self,v):
+        # Add Name for Name/ and Mobile/Tel for phone Email for mail
+            # Add Name /Written by /Design Thinking for Innovation/Done by:/By for Name/ and Mobile/Tel for phone Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
+        text = random.choices([f"Email: {v}",f'mail: {v}',f"Email {v}",f"{v}"],k=1,weights = [0.5/3]*3+[0.5])[0]
+        
+        return text
+    # ======================================================================================== #
+    def id_num(self,v):
+        # Add Name for Name/ and Mobile/Tel for phone Email for mail
+            # Email for mail Pin num for idnum PIN NO Roll NO. NUMBER idnum code pin 
+        text = random.choices([f"idnum {v}",f"ROLL NO. {v}",f"Pin {v}",f"ID NO. {v}",f"pin {v}",
+                            f'code {v}',f"PIN NO: {v}",f"{v}"],k=1,weights = [0.5/7]*7+[0.5])[0]
+        
         return text
     # ======================================================================================== #
     def generate_fake_data(self):
-
+        
         data = self.generate_random_data_with_probabilities()
-
-        NB_PII_MAX = random.choice([1,2,3])
-        piis_ent = random.sample(list(data.keys()),k=NB_PII_MAX)
-
-
+        
+        NB_PII_MAX = random.choices([1,2,3,4,5,6],k=1,weights=[3/24,2/6,2/6,3/24,3/24,3/24])
+        piis_ent = np.random.choice(['EMAIL','USERNAME','ID_NUM',
+                                'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS'],replace=False,
+                                    size=NB_PII_MAX,p=[1/6]*6)
+        
+        piis_ent = ['NAME_STUDENT'] + piis_ent.tolist()
+        # print(piis_ent)        
         full_text = ""
         tokens = []
         labels = []
         offset_mapping = []
         off = 0
         for num, ent in enumerate(piis_ent):
-
+    #         print(ent)
             if ent=="NAME_STUDENT":
                 text = self.name_student(data[ent])
                 if num ==0:
                     full_text = text
                 else:
-                    off = off + 1 
-                    full_text = full_text + " " + text
-
+                    sep = random.choice([' | ',' - ',' , ', ' ; ',' '])
+                    off = off + len(sep) 
+                    full_text = full_text + sep + text
+                    
                 toks = self.tokenize_with_spacy(text)
                 tokns = toks['tokens']
                 offset = toks['offset_mapping']
                 labs = np.array(["O"]*len(tokns),dtype='<U50')
                 idx = [i for i,x in enumerate(tokns) if x in data[ent]][0]
                 labs[idx:] = "NAME_STUDENT"
-
+                
                 tokens = tokens + tokns
                 labels = labels + labs.tolist()
                 new_offset = [(x[0]+off,x[1]+off) for x in offset]
                 offset_mapping = offset_mapping + new_offset
                 off = offset_mapping[-1][1]
-
-            else:
-                text = data[ent]
-
+            
+            elif ent=='PHONE_NUM':
+                text = self.phone_no(data[ent])
                 if num ==0:
                     full_text = text
                 else:
-                    off = off+1
-                    full_text = full_text + " " + text
-
+                    sep = random.choice([' | ',' - ',' , ', ' ; ',' '])
+                    off = off + len(sep) 
+                    full_text = full_text + sep + text
+                    
+                toks = self.tokenize_with_spacy(text)
+                tokns = toks['tokens']
+                offset = toks['offset_mapping']
+                labs = np.array(["O"]*len(tokns),dtype='<U50')
+                idx = [i for i,x in enumerate(tokns) if x in data[ent]][0]
+                labs[idx:] = "PHONE_NUM"
+                
+                tokens = tokens + tokns
+                labels = labels + labs.tolist()
+                new_offset = [(x[0]+off,x[1]+off) for x in offset]
+                offset_mapping = offset_mapping + new_offset
+                off = offset_mapping[-1][1]
+                
+            elif ent=='ID_NUM':
+                text = self.id_num(data[ent])
+                if num ==0:
+                    full_text = text
+                else:
+                    sep = random.choice([' | ',' - ',' , ', ' ; ',' '])
+                    off = off + len(sep) 
+                    full_text = full_text + sep + text
+                    
+                toks = self.tokenize_with_spacy(text)
+                tokns = toks['tokens']
+                offset = toks['offset_mapping']
+                labs = np.array(["O"]*len(tokns),dtype='<U50')
+                idx = [i for i,x in enumerate(tokns) if x in data[ent]][0]
+                labs[idx:] = "ID_NUM"
+                
+                tokens = tokens + tokns
+                labels = labels + labs.tolist()
+                new_offset = [(x[0]+off,x[1]+off) for x in offset]
+                offset_mapping = offset_mapping + new_offset
+                off = offset_mapping[-1][1]
+                
+            elif ent=='EMAIL':
+                text = self.email_add(data[ent])
+                if num ==0:
+                    full_text = text
+                else:
+                    sep = random.choice([' | ',' - ',' , ', ' ; ',' '])
+                    off = off + len(sep) 
+                    full_text = full_text + sep + text
+                    
+                toks = self.tokenize_with_spacy(text)
+                tokns = toks['tokens']
+                offset = toks['offset_mapping']
+                labs = np.array(["O"]*len(tokns),dtype='<U50')
+                idx = [i for i,x in enumerate(tokns) if x in data[ent]][0]
+                labs[idx:] = "EMAIL"
+                
+                tokens = tokens + tokns
+                labels = labels + labs.tolist()
+                new_offset = [(x[0]+off,x[1]+off) for x in offset]
+                offset_mapping = offset_mapping + new_offset
+                off = offset_mapping[-1][1]
+                
+            
+    #             print(off)
+            else:
+                text = data[ent]
+                
+                if num ==0:
+                    full_text = text
+                else:
+                    sep = random.choice([' | ',' - ',' , ', ' ; ',' '])
+                    off = off + len(sep) 
+                    full_text = full_text + sep + text
+                
                 toks = self.tokenize_with_spacy(text)
                 tokns = toks['tokens']
                 offset = toks['offset_mapping']
                 labs = [ent]*len(tokns)
-
+                
                 tokens = tokens + tokns
                 labels = labels + labs
-
+                
                 new_offset = [(x[0]+off,x[1]+off) for x in offset]
                 offset_mapping = offset_mapping + new_offset
                 off = offset_mapping[-1][1]
+    #             print(off)
+    #         print(labels)
+        #  adding final punctuation 
+        text = ' |'
+        full_text = full_text + text
+        toks = self.tokenize_with_spacy(text)
+        tokns = toks['tokens']
+        offset = toks['offset_mapping']
+        labs = ['O']*len(tokns)
 
+        tokens = tokens + tokns
+        labels = labels + labs
+
+        new_offset = [(x[0]+off,x[1]+off) for x in offset]
+        offset_mapping = offset_mapping + new_offset
+        off = offset_mapping[-1][1]
         return full_text,tokens,labels,offset_mapping
-
+    # ======================================================================================== #
     def remove_double_spaces(self,text):
         # Use a regular expression to replace consecutive spaces with a single space
         # cleaned_text = re.sub(r'\s{2,}', ' | ', text)
@@ -378,8 +490,9 @@ class FeedbackDataset(Dataset):
         username = fake.user_name()
         email = fake.ascii_free_email()
         address = fake.address()
-        id_num = random.choices([fake.passport_number(),fake.bban(),
-                                 fake.iban(),self.generate_random_number(12)],k=1,weights = [0.1,0.10,0.15,0.65])[0]
+        id_num = random.choices([fake.passport_number(),fake.bban(), fake.iban(),
+                             fake.credit_card_number(),fake.swift(),fake.ean(),
+                             self.generate_random_number(12)],k=1,weights = [1/7]*7)[0]
         url_pers = self.generate_fake_social_media_urls()
 
         punctuation_pattern = r'[^\w\s]'
@@ -392,9 +505,6 @@ class FeedbackDataset(Dataset):
         filtered_words = [word for word in words if word.lower() not in stopwords_list]
         # Join the filtered words back into a string
         name = ' '.join(filtered_words)
-
-        
-
 
         ret = dict(
                   NAME_STUDENT=name,
@@ -658,9 +768,21 @@ class FeedbackDataset(Dataset):
     def add_text(self,full_text,tokens,labels,offset_mapping,
                  new_text,new_tokens,new_labels,new_offset_mapping):
         try:
+            sep = ''
+            full_text = new_text + sep + full_text
+            tokens = new_tokens + tokens
+            labels = new_labels + labels
+            off = new_offset_mapping[-1][1] + len(sep)
+            new_offset = [(x[0]+off,x[1]+off) for x in offset_mapping]
+            offset_mapping = new_offset_mapping + new_offset
+            
+
             s = full_text.split('|')
-            prob_dist = self.custom_distribution(len(s))
-            id_ = random.choices(np.arange(len(s)),k=1,weights = prob_dist)[0]
+            #prob_dist = self.custom_distribution(len(s))
+            #id_ = random.choices(np.arange(len(s)),k=1,weights = prob_dist)[0]
+            id_ = int(np.random.normal(len(s)/2,len(s)/6, 1).round())
+
+            #print(id_)
 
             idx = [len(s[i]) for i in range(id_+1)]
             idx = sum(idx)
@@ -673,7 +795,7 @@ class FeedbackDataset(Dataset):
             tokens = tokens[:t_idx]+new_tokens+tokens[t_idx:]
             labels = labels[:t_idx]+new_labels+labels[t_idx:]
 
-
+            #print(new_tokens)
             v = offset_mapping[:t_idx][-1][1]
             new_offset_mappings = [(x[0]+v+1,x[1]+v+1) for x in new_offset_mapping]
             v1 = new_offset_mappings[-1][1]
@@ -684,7 +806,7 @@ class FeedbackDataset(Dataset):
 
         except:
             pass
-            # print("Text not added")
+            #print("Text not added")
         return full_text,tokens,labels,offset_mapping
 
 ## =============================================================================== ##

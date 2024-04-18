@@ -73,13 +73,14 @@ if __name__ == "__main__":
     # df["tokens"] = df["tokens"].transform(lambda x:eval(x))
 
     df = pd.read_json(data_path/'train.json')
+    # print(df.shape)
 
     LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
     TYPE2LABEL = {t: l for l, t in enumerate(LABEL2TYPE)}
     LABEL2TYPE = {l: t for l, t in enumerate(LABEL2TYPE)}
 
     LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
-    for name in LABEL2TYPE[:-1]:
+    for name in LABEL2TYPE:
         df[name] = ((df['labels'].transform(lambda x:len([i for i in x if i.split('-')[-1]==name ])))>0)*1
 
     seeds = [42]
@@ -91,6 +92,7 @@ if __name__ == "__main__":
             df[name] = -1
             for fold, (trn_, val_) in enumerate(mskf.split(df,df[list(LABEL2TYPE)[:-1]])):
                 df.loc[val_, name] = fold
+
 
     external_data = False
     if external_data:
@@ -113,9 +115,14 @@ if __name__ == "__main__":
         df = pd.concat([df,dx],axis=0).reset_index(drop=True)
 
     # dx[name] = -1
-    print(df.groupby(name)[list(LABEL2TYPE)[:-1]].sum())
+    # df['has_label'] = (df['labels'].transform(lambda x:len([i for i in x if i!="O" ]))>0)*1
+    # df = df[df.has_label==0].reset_index(drop=True)
+    
+    print(df.groupby(name)[list(LABEL2TYPE)].sum())
 
     print(cfg.device)
+
+    
 
     ID_TYPE = {"0-0":0,"0-1":1,
            "1-0":2,"1-1":3,
@@ -240,7 +247,7 @@ if __name__ == "__main__":
                                     "token" : tokens,
                                     "tokens":tokens_v,
                                     "label" : i.numpy() ,
-                                    "score" : s.numpy() ,
+                                    "score" : np.float32(s.numpy()) ,
     #                                  "o_score":predictions[:,-1].numpy()
                                     })
         
@@ -278,8 +285,8 @@ if __name__ == "__main__":
         args.model['pretrained_weights'] = None
         args.model["model_params"]['pretrained_path'] = None
         args.model["model_params"]['max_len'] = max_len
-        args.data['params_valid'] = {"add_text_prob":0,
-                                          "replace_text_prob":0,
+        args.data['params_valid'] = {"add_text_prob":0.0,
+                                          "replace_text_prob":0.0,
                                           "use_re":False
                                          }
         
@@ -327,12 +334,12 @@ if __name__ == "__main__":
                     preds.append(pred.detach().cpu().to(torch.float32))
     # #                 pred  = pred.softmax(-1)
                     
+                   
                     
                     if j==0:
-                    
                         doc_ids+=[data['text_id']]*pred.shape[0]
                         tokens+=np.arange(pred.shape[0]).tolist()
-                        tokens_v += data['tokens']
+                        tokens_v += data['tokens_clean']
                         data = to_np(data)
                         gt = pd.DataFrame({
                                         "document":data['text_id'],
@@ -390,6 +397,138 @@ if __name__ == "__main__":
         
         
         return pred_df , gt_df
+    
+    def predict_steps(df,folder,bs=1,folds=[0],device=0,max_len=4096):
+        
+        # ==== Loading Args =========== #
+        f = open(f'{folder}/params.json')
+        args = json.load(f)
+        args = SimpleNamespace(**args)
+        args.val_loader['batch_size'] = bs
+        args.model['pretrained_tokenizer'] = f"{folder}/tokenizer"
+        args.model['model_params']['config_path'] = f"{folder}/config.pth"
+        args.model['pretrained_weights'] = None
+        args.model["model_params"]['pretrained_path'] = None
+        args.model["model_params"]['max_len'] = max_len
+        args.data['params_valid'] = {"add_text_prob":0.0,
+                                          "replace_text_prob":0.0,
+                                          "use_re":False
+                                         }
+        
+        args.device = device
+        f.close()
+        device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
+        
+        # ==== Loading dataset =========== #
+        tokenizer = AutoTokenizer.from_pretrained(args.model["model_params"]['model_name'])
+        valid_dataset = eval(args.dataset)(df,tokenizer,**args.data["params_valid"])
+        
+        
+        
+        # ==== Loading checkpoints =========== #
+        checkpoints = [x.as_posix() for x in (Path(folder)).glob("*.pth") if f"config" not in x.as_posix()]
+        checkpoints = [ x for x in checkpoints if any([f"fold_{fold}" in x for fold in folds])]
+        
+        weights = [1/len(checkpoints)]*len(checkpoints)
+        
+        
+        # ==== Loop Inference =========== #
+        doc_ids = []
+        tokens = []
+        tokens_v = []
+        predictions = None
+        gt_df = []
+        for j,(checkpoint,weight) in enumerate(zip(checkpoints,weights)):
+            
+            net = FeedbackModel(**args.model["model_params"])
+            net.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage))
+            net = net.to(device)
+            net.eval()
+            
+            collator = CustomCollator(tokenizer,net)
+            val_loader = DataLoader(valid_dataset,**args.val_loader,collate_fn=collator)
+        
+
+            
+            preds = []
+            with torch.no_grad():
+                for data in tqdm(val_loader):
+                    data = to_gpu(data, device)
+                    
+                    pred = net(data)['pred']
+                    preds.append(pred.detach().cpu().to(torch.float32))
+    # #                 pred  = pred.softmax(-1)
+                    
+                   
+                    
+                    if j==0:
+                        doc_ids+=[data['text_id']]*pred.shape[0]
+                        tokens+=np.arange(pred.shape[0]).tolist()
+                        tokens_v += data['tokens_clean']
+                        data = to_np(data)
+                        gt = pd.DataFrame({
+                                        "document":data['text_id'],
+                                        "token":np.arange(pred.shape[0]),
+                                        "label":data["gt_spans"][:,1],
+                                        "I":data["gt_spans"][:,2],
+                                        })
+                        gt_df.append(gt)
+
+            
+            
+            
+            if predictions is not None:
+                predictions = torch.cat([torch.max(predictions[:, :-1], torch.cat(preds,dim=0)[:, :-1]),
+                                        torch.min(predictions[:, -1:], torch.cat(preds,dim=0)[:, -1:])],dim=-1)
+                
+    #             predictions+= torch.cat(preds,dim=0)*weight
+            else:
+                predictions = torch.cat(preds,dim=0)#*weight
+                
+    #         if predictions is not None:
+    # #             predictions = torch.max(predictions,torch.cat(preds,dim=0))
+    #             predictions+= torch.cat(preds,dim=0)*weight
+    #         else:
+    #             predictions = torch.cat(preds,dim=0)*weight
+    #             predictions+= torch.cat(preds,dim=0)*weight
+    #         print(predictions.shape)
+            print(checkpoint)
+        predictions = predictions.softmax(-1)
+        s,i = predictions.max(-1)
+        pred_df = pd.DataFrame({"document":doc_ids,
+                                    "token" : tokens,
+                                    'doc_size':len(tokens),
+                                    "tokens":tokens_v,
+                                    "label_pred" : i.numpy() ,
+                                    "score" : np.float32(s.numpy()) ,
+    #                                  "o_score":predictions[:,-1].numpy()
+                                    })
+        
+        for i,k in enumerate(LABEL2TYPE):
+            pred_df[k] = np.float32(predictions[:,i].numpy())
+
+        
+        pred_df[list(LABEL2TYPE)] = pred_df[list(LABEL2TYPE)].astype(np.float32)
+
+        # ==== Loop Inference =========== #
+        del valid_dataset
+        del val_loader
+        del net
+        # del s,i
+        del predictions
+
+        gc.collect()
+        
+
+        gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
+        gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+        # gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
+        # gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+        gt_df['row_id'] = np.arange(len(gt_df))
+
+        pred_df = pred_df.merge(gt_df,how='left',on=['document','token'])
+        
+        return pred_df
 
     def make_pred_df(pred_df,threshold=0.15):
         
@@ -480,6 +619,29 @@ if __name__ == "__main__":
 
         df.to_csv(Path(folder)/f'oof_blend_mean.csv',index=False)
 
+    elif cfg.blend==3:
+        pred = []
+        pdf = []
+        gt = []
+        for FOLD in [0,1,2,3,4]:
+            pred_df_dv3 = predict_steps(df[df[FOLD_NAME]==FOLD],folder,bs=1,folds=[FOLD],device=cfg.device,max_len=cfg.max_len) #[df[FOLD_NAME]==FOLD]
+            pred_df_dv3[FOLD_NAME] = FOLD
+            print(pd.crosstab(pred_df_dv3.label,pred_df_dv3.label_pred,normalize=0))
+            pdf.append(pred_df_dv3)
+            # gt_df['label'] = gt_df['labels'].map(ID_NAME)
+            # pred_df_dv3 = make_pred_df(pred_df_dv3,threshold=0.15)
+            # s = compute_metrics(pred_df_dv3, gt_df)
+            
+            print(f"Fold {FOLD}")
+            # print(s)
+            print("\n")
+
+            pred.append(pred_df_dv3)
+
+        
+        pred = pd.concat(pred).reset_index(drop=True)
+        pred[list(LABEL2TYPE)] = pred[list(LABEL2TYPE)].astype(np.float32)
+        pred.to_parquet(Path(folder)/f'stack_oof.gzip',index=False)
         
     else:
         pred = []

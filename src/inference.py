@@ -47,7 +47,12 @@ CHECKPOINT_PATH = Path(r"/database/kaggle/PII/checkpoint")
 
 
 from datetime import date
-
+import ctypes
+# libc = ctypes.CDLL("libc.so.6")
+def clean_memory():
+    gc.collect()
+    ctypes.CDLL("libc.so.6").malloc_trim(0)
+    torch.cuda.empty_cache()
 
 
 ID_TYPE = {"0-0":0,"0-1":1,
@@ -68,7 +73,7 @@ ID_NAME = {"0-0":"B-NAME_STUDENT","0-1":"I-NAME_STUDENT",
         "7-0":"O","7-1":"O"
         }
 
-def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096):
+def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096,kaggle=False):
     
 
     doc_ids = []
@@ -139,14 +144,16 @@ def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096
                         doc_ids+=[data['text_id']]*pred.shape[0]
                         tokens+=np.arange(pred.shape[0]).tolist()
                         tokens_v += data['tokens']
-                        data = to_np(data)
-                        gt = pd.DataFrame({
-                                        "document":data['text_id'],
-                                        "token":np.arange(pred.shape[0]),
-                                        "label":data["gt_spans"][:,1],
-                                        "I":data["gt_spans"][:,2],
-                                        })
-                        gt_df.append(gt)
+                        
+                        if not kaggle:
+                            data = to_np(data)
+                            gt = pd.DataFrame({
+                                            "document":data['text_id'],
+                                            "token":np.arange(pred.shape[0]),
+                                            "label":data["gt_spans"][:,1],
+                                            "I":data["gt_spans"][:,2],
+                                            })
+                            gt_df.append(gt)
 
         
         
@@ -166,7 +173,7 @@ def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096
 #             predictions = torch.cat(preds,dim=0)*weight
 #             predictions+= torch.cat(preds,dim=0)*weight
 #         print(predictions.shape)
-        print(checkpoint)
+        # print(checkpoint)
     predictions = predictions.softmax(-1)
     s,i = predictions.max(-1)
     pred_df = pd.DataFrame({"document":doc_ids,
@@ -181,21 +188,22 @@ def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096
     del valid_dataset
     del val_loader
     del net
-    # del s,i
+    del s,i
     del predictions
-
-    gc.collect()
+    clean_memory()
+    # gc.collect()
     
+    if not kaggle:
 
-    gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
-    gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
-    gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
-    gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
-    gt_df['row_id'] = np.arange(len(gt_df))
-
+        gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
+        gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+        gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
+        gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+        gt_df['row_id'] = np.arange(len(gt_df))
+        return pred_df , gt_df
     
-    
-    return pred_df , gt_df
+    else:
+        return pred_df
 
 
 
@@ -308,10 +316,10 @@ def inference_steps(df,folder,bs=1,folds=[0],device=0,max_len=4096,kaggle=False)
     del valid_dataset
     del val_loader
     del net
-    # del s,i
+    del s,i
     del predictions
-
-    gc.collect()
+    clean_memory()
+    # gc.collect()
     
     if not kaggle:
         gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
@@ -322,5 +330,19 @@ def inference_steps(df,folder,bs=1,folds=[0],device=0,max_len=4096,kaggle=False)
 
         return pred_df , gt_df
     else:
+        # New method
+        pred_df["label_next_e_prev"] = pred_df.groupby('document')['label'].transform(lambda x: (x.shift(1)==x.shift(-1))*1)
+        pred_df["label_next"] = pred_df.groupby('document')['label'].transform(lambda x: x.shift(1))
+        pred_df["label_next_e_prev"] = ((pred_df["label_next_e_prev"]==1) & (pred_df["label_next"]==6))*1
+        pred_df["score_next"] = pred_df.groupby('document')['score'].transform(lambda x: x.shift(1))
+        pred_df.loc[pred_df["label_next_e_prev"]==1,"label"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"label_next"]
+        pred_df.loc[pred_df["label_next_e_prev"]==1,"score"] = pred_df.loc[pred_df["label_next_e_prev"]==1,"score_next"]
+
+
+        pred_df = pred_df[(pred_df.label!=7) & ((pred_df.score>0.14))].reset_index(drop=True)
+        pred_df["I"] = ((pred_df.groupby('document')['label'].transform(lambda x:x.diff())==0) & (pred_df.groupby('document')['token'].transform(lambda x:x.diff())==1))*1
+        pred_df['labels'] = pred_df['label'].astype(str)+'-'+pred_df['I'].astype(str)
+        pred_df["label_pred"] = pred_df["labels"].map(ID_TYPE).fillna(0).astype(int)
+        pred_df['row_id'] = np.arange(len(pred_df))
         return pred_df
 
