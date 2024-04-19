@@ -470,7 +470,7 @@ if __name__ == "__main__":
                                         "document":data['text_id'],
                                         "token":np.arange(pred.shape[0]),
                                         "label":data["gt_spans"][:,1],
-                                        "I":data["gt_spans"][:,2],
+                                        # "I":data["gt_spans"][:,2],
                                         })
                         gt_df.append(gt)
 
@@ -497,7 +497,7 @@ if __name__ == "__main__":
         s,i = predictions.max(-1)
         pred_df = pd.DataFrame({"document":doc_ids,
                                     "token" : tokens,
-                                    'doc_size':len(tokens),
+                                    # 'doc_size':len(tokens),
                                     "tokens":tokens_v,
                                     "label_pred" : i.numpy() ,
                                     "score" : np.float32(s.numpy()) ,
@@ -524,7 +524,7 @@ if __name__ == "__main__":
         gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
         # gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
         # gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
-        gt_df['row_id'] = np.arange(len(gt_df))
+        # gt_df['row_id'] = np.arange(len(gt_df))
 
         pred_df = pred_df.merge(gt_df,how='left',on=['document','token'])
         
