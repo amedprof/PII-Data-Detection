@@ -47,11 +47,13 @@ CHECKPOINT_PATH = Path(r"/home/jovyan/datafabric/checkpoint")
 
 
 from datetime import date
+# import deepspeed
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--model_name", type=str, default=None, required=False)
+    parser.add_argument("--data", type=str, default=None, required=False)
     parser.add_argument("--device", type=int, default=0, required=False)   
     parser.add_argument("--blend", type=int, default=0, required=False)  
     parser.add_argument("--max_len", type=int, default=4096, required=False)  
@@ -72,9 +74,11 @@ if __name__ == "__main__":
     # df["labels"] = df["labels"].transform(lambda x:eval(x))
     # df["tokens"] = df["tokens"].transform(lambda x:eval(x))
 
-    df = pd.read_json(data_path/'train.json')
-    # print(df.shape)
+    df = pd.read_json(data_path/f'{cfg.data}.json')#.head(100)
+    # print(df.head())
 
+    # if cfg.data!="train":
+    #     df["document"] = np.arange(df.shape[0])
     LABEL2TYPE = ('NAME_STUDENT','EMAIL','USERNAME','ID_NUM', 'PHONE_NUM','URL_PERSONAL','STREET_ADDRESS','O')
     TYPE2LABEL = {t: l for l, t in enumerate(LABEL2TYPE)}
     LABEL2TYPE = {l: t for l, t in enumerate(LABEL2TYPE)}
@@ -142,7 +146,7 @@ if __name__ == "__main__":
             "7-0":"O","7-1":"O"
             }
 
-    def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=4096):
+    def inference_blendings(df,folders,bs=1,folds=[0],selected_device=0,max_len=None):
         
 
         doc_ids = []
@@ -162,7 +166,8 @@ if __name__ == "__main__":
             args.model['model_params']['config_path'] = f"{folder}/config.pth"
             args.model['pretrained_weights'] = None
             args.model["model_params"]['pretrained_path'] = None
-            args.model["model_params"]['max_len'] = max_len
+            if max_len is not None:
+                args.model["model_params"]['max_len'] = max_len
             args.data['params_valid'] = {"add_text_prob":0,
                                             "replace_text_prob":0,
                                             "use_re":False
@@ -313,12 +318,24 @@ if __name__ == "__main__":
         tokens_v = []
         predictions = None
         gt_df = []
+
+        
         for j,(checkpoint,weight) in enumerate(zip(checkpoints,weights)):
-            
+            print(checkpoint)
             net = FeedbackModel(**args.model["model_params"])
             net.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage))
+            # net.load_state_dict(torch.load(checkpoint, map_location=torch.device('cpu')))
             net = net.to(device)
             net.eval()
+
+            # Initialize the DeepSpeed-Inference engine
+            # ds_engine = deepspeed.init_inference(net,
+            #                                 tensor_parallel={"tp_size": 2},
+            #                                 dtype=torch.half,
+            #                                 checkpoint=None,
+            #                                 replace_with_kernel_inject=True)
+            # net = ds_engine.module
+            # net.eval()
             
             collator = CustomCollator(tokenizer,net)
             val_loader = DataLoader(valid_dataset,**args.val_loader,collate_fn=collator)
@@ -356,7 +373,7 @@ if __name__ == "__main__":
                 predictions = torch.cat([torch.max(predictions[:, :-1], torch.cat(preds,dim=0)[:, :-1]),
                                         torch.min(predictions[:, -1:], torch.cat(preds,dim=0)[:, -1:])],dim=-1)
                 
-    #             predictions+= torch.cat(preds,dim=0)*weight
+                # predictions+= torch.cat(preds,dim=0)#*weight
             else:
                 predictions = torch.cat(preds,dim=0)#*weight
                 
@@ -367,7 +384,7 @@ if __name__ == "__main__":
     #             predictions = torch.cat(preds,dim=0)*weight
     #             predictions+= torch.cat(preds,dim=0)*weight
     #         print(predictions.shape)
-            print(checkpoint)
+            
         predictions = predictions.softmax(-1)
         s,i = predictions.max(-1)
         pred_df = pd.DataFrame({"document":doc_ids,
@@ -390,6 +407,7 @@ if __name__ == "__main__":
 
         gt_df = pd.concat(gt_df,axis=0).reset_index(drop=True)
         gt_df = gt_df[gt_df.label!=7].reset_index(drop=True)
+        # print(gt_df.head())
         gt_df['labels'] = gt_df['label'].astype(str)+'-'+gt_df['I'].astype(str)
         gt_df["label_gt"] = gt_df["labels"].map(ID_TYPE).fillna(0).astype(int)
         gt_df['row_id'] = np.arange(len(gt_df))
@@ -559,22 +577,32 @@ if __name__ == "__main__":
     folder = str(CHECKPOINT_PATH/f"{cfg.model_name}/{cfg.exp_name}")
 
     if cfg.blend==1:
-        pred_df,gt_df = inference_steps(df,folder,bs=1,folds=[0,1,2,3,4,5,6,7,8,9,10])
-        # pred_df.to_csv(Path(folder)/f'pii-200-ms-blend.csv',index=False)
+        # for fold in [0,1,2,3,4]:
+        #     pred_df,gt_df = inference_steps(df,folder,bs=1,folds=[fold])
+        #     # pred_df.to_csv(Path(folder)/f'pii-200-ms-blend.csv',index=False)
+        #     # print(pred_df.dtypes)
+        #     gt_df['label'] = gt_df['labels'].map(ID_NAME)
+        #     pred_df = make_pred_df(pred_df,threshold=0.15)
+        #     s = compute_metrics(pred_df, gt_df)
+        #     print(f"Fold {fold}")
+        #     print(s)
+        #     print("\n")
+        
+        pred_df,gt_df = inference_steps(df,folder,bs=1,folds=[0,1,2,3,4])
+        gt_df['label'] = gt_df['labels'].map(ID_NAME)
         pred_df = make_pred_df(pred_df,threshold=0.15)
-        gt_df['label'] = gt_df['label'].map(LABEL2TYPE)
-        s = compute_metrics_new(pred_df, gt_df)
+        s = compute_metrics(pred_df, gt_df)
+        print(f"OOF")
         print(s)
         print("\n")
-
     elif cfg.blend==2:
         print('blending per fold')
         pred = []
         pdf = []
         gt = []
-        folders = [str(CHECKPOINT_PATH/Path(f'{FOLD_NAME}/{x}'))  for x in cfg.folders]
+        folders = [str(CHECKPOINT_PATH/Path(f'{FOLD_NAME}/{cfg.model_name}/{x}'))  for x in cfg.folders]
         for FOLD in [0,1,2,3,4]:
-            pred_df_dv3,gt_df = inference_blendings(df[df[FOLD_NAME]==FOLD],folders,bs=1,folds=[FOLD],selected_device=cfg.device,max_len=cfg.max_len) #[df[FOLD_NAME]==FOLD]
+            pred_df_dv3,gt_df = inference_blendings(df,folders,bs=1,folds=[FOLD],selected_device=cfg.device,max_len=cfg.max_len) #[df[FOLD_NAME]==FOLD]
             
             pdf.append(pred_df_dv3)
             gt_df['label'] = gt_df['labels'].map(ID_NAME)
@@ -617,7 +645,8 @@ if __name__ == "__main__":
         df = df.merge(df_score,how='left',on='document',suffixes=('','_s'))
         df = df.merge(pdf,how='left',on='document')
 
-        df.to_csv(Path(folder)/f'oof_blend_mean.csv',index=False)
+        fl = "---".join(cfg.folders)
+        df.to_csv(Path(folder)/f'oof_blend_min_O_{fl}.csv',index=False)
 
     elif cfg.blend==3:
         pred = []
